@@ -1,0 +1,9 @@
+storage:
+    type: local
+    path: /home/dmiga/test_repo/pool
+
+metadb:
+    type: single_mongo
+    host: localhost
+    port: 27018
+    
