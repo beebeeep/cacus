@@ -1,9 +1,17 @@
 storage:
     type: local
-    path: /home/dmiga/test_repo/pool
+    path: /home/dmiga/test-repo/pool
 
 metadb:
     type: single_mongo
     host: localhost
     port: 27018
+
+repos:
+    yandex-precise:
+        incoming_dir: /home/dmiga/test-repo/incoming/yandex-precise
+        repo_root: /home/dmiga/test-repo/yandex-precise
+    common:
+        incoming_dir: /home/dmiga/test-repo/incoming/common
+        repo_root: /home/dmiga/test-repo/common
     
