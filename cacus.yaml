@@ -1,5 +1,5 @@
 storage:
-    type: local
+    type: FileStorage
     path: /home/dmiga/test-repo/pool
 
 metadb:

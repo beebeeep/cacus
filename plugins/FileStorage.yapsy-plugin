@@ -1,0 +1,4 @@
+[Core]
+Name = FileStorage
+Module = FileStorage
+
