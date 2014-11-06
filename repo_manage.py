@@ -9,7 +9,7 @@ from binascii import hexlify
 import logging
 
 import misc
-import storage
+import loader
 import common
 import gzip
 
@@ -42,7 +42,7 @@ def upload_packages(repo, env, pkgs):
             common.db[repo].insert(meta)
 
         log.info("Uploading %s to repo '%s' environment '%s'", repo_filename, repo, env)
-        storage.put(repo_filename, filename, common.config['storage'])
+        loader.get_plugin('storage').put(repo_filename, filename)
 
 def update_repo_metadata(repo, env):
     fname = "{0}/{1}/Packages.gz".format(common.config['repos'][repo]['repo_root'], env)

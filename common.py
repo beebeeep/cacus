@@ -10,9 +10,11 @@ def connect_mongo(cfg):
     if cfg['type'] == 'single_mongo':
         return pymongo.Connection(host = cfg['host'], port = cfg['port'])
 
-def load_config(config):
-    with open(config) as cfg:
-        return yaml.load(cfg)
+def load_config(config_file='cacus.yaml'):
+    global config
+    with open(config_file) as cfg:
+        config = yaml.load(cfg)
+        return config
 
 def get_hashes(file):
     md5 = hashlib.md5()
