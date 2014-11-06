@@ -36,17 +36,16 @@ class EventHandler(pyinotify.ProcessEvent):
             current_hash = None
             changes = ChangeFile.ChangeFile()
             changes.load_from_file(event.pathname)
+            changes.filename = event.pathname
 
-            for s in changes['files']:
-                if s:
-                    m = re.match(changes.md5_re, s)
-                    if m:
-                        filename = event.path + '/' + m.group('file')
-                        incoming_files.append(filename)
+            for f in changes.getFiles():
+                filename = os.path.join(event.path, f[2])
+                incoming_files.append(filename)
 
+            # TODO: add reject dir and metadb collection and store all rejected files there
             try:
                 changes.verify(event.path)
-                verifier.verify(event.pathname)
+                verifier.verify(changes.filename)
             except ChangeFile.ChangeFileException as e:
                 log.error("Checksum verification failed: %s", e)
                 for f in incoming_files:
@@ -56,17 +55,14 @@ class EventHandler(pyinotify.ProcessEvent):
                 for f in incoming_files:
                     os.unlink(f)
 
-            for file in incoming_files:
-                if file.endswith('.deb'):
-                    # all new packages are going to unstable
-                    # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
-                    log.info("Uploading %s to repo '%s', environment 'unstable'", file, self.repo)
-                    repo_manage.upload_packages(self.repo, 'unstable', [file])
-                    log.info("Updating '%s' repo metadata", self.repo)
-                    repo_manage.update_repo_metadata(self.repo, 'unstable')
-                    for f in incoming_files:
-                        os.unlink(f)
-                    break
+            # all new packages are going to unstable
+            # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
+            log.info("Uploading %s to repo '%s', environment 'unstable'", incoming_files, self.repo)
+            repo_manage.upload_packages(self.repo, 'unstable', incoming_files)
+            log.info("Updating '%s' repo metadata", self.repo)
+            repo_manage.update_repo_metadata(self.repo, 'unstable')
+            for f in incoming_files:
+                os.unlink(f)
 
 def start_duploader():
     for repo, param in common.config['repos'].iteritems():

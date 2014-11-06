@@ -28,20 +28,21 @@ def upload_packages(repo, env, pkgs):
         with open(filename) as file:
             hashes = common.get_hashes(file)
 
-        deb = debfile.DebFile(filename)
-        for k,v in deb.debcontrol().iteritems():
-            meta[k] = v
-        meta['filename'] = repo_filename
-        meta['size'] = os.stat(filename)[stat.ST_SIZE]
-        meta['sha512'] = binary.Binary(hashes['sha512'])
-        meta['sha256'] = binary.Binary(hashes['sha256'])
-        meta['sha1'] = binary.Binary(hashes['sha1'])
-        meta['md5'] = binary.Binary(hashes['md5'])
-        meta['environment'] = env
+        if filename.endswith('.deb'):
+            deb = debfile.DebFile(filename)
+            for k,v in deb.debcontrol().iteritems():
+                meta[k] = v
+            meta['filename'] = repo_filename
+            meta['size'] = os.stat(filename)[stat.ST_SIZE]
+            meta['sha512'] = binary.Binary(hashes['sha512'])
+            meta['sha256'] = binary.Binary(hashes['sha256'])
+            meta['sha1'] = binary.Binary(hashes['sha1'])
+            meta['md5'] = binary.Binary(hashes['md5'])
+            meta['environment'] = env
+            common.db[repo].insert(meta)
 
         log.info("Uploading %s to repo '%s' environment '%s'", repo_filename, repo, env)
         storage.put(repo_filename, filename, common.config['storage'])
-        common.db[repo].insert(meta)
 
 def update_repo_metadata(repo, env):
     fname = "{0}/{1}/Packages.gz".format(common.config['repos'][repo]['repo_root'], env)
