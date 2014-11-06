@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 from yapsy.PluginManager import PluginManagerSingleton
 
 import common
@@ -5,10 +8,11 @@ import plugins
 import logging
 
 loaded_plugins = {}
+log = logging.getLogger('cacus.loader')
 
 def load_plugins():
     manager = PluginManagerSingleton.get()
-    manager.setPluginPlaces(['plugins'])
+    manager.setPluginPlaces(['plugins/'])
     manager.setCategoriesFilter({
         'storage': plugins.IStoragePlugin,
         })
@@ -26,12 +30,10 @@ def load_plugins():
                     loaded_plugins[category] = plugin
                     break
         except:
-            logging.exception('Unable to load plugin category %s', category)
+            log.exception('Unable to load plugin category %s', category)
 
 
 def get_plugin(category):
     return loaded_plugins[category].plugin_object
 
-common.load_config()
 load_plugins()
-print get_plugin('storage')

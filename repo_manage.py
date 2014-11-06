@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 from bson import binary
 import os
@@ -8,7 +9,6 @@ from debian import debfile
 from binascii import hexlify
 import logging
 
-import misc
 import loader
 import common
 import gzip

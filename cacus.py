@@ -4,7 +4,6 @@
 import argparse
 import logging
 
-import common, repo_manage, duploader
 
 logFormatter = logging.Formatter("%(asctime)s [%(levelname)-7.7s] %(name)s: %(message)s")
 log = logging.getLogger('cacus')
@@ -31,6 +30,7 @@ if __name__  == '__main__':
     op_type.add_argument('--remove', action = 'store_true', help = 'Remove package(s)')
     op_type.add_argument('--dmove', action = 'store_true', help = 'Dmove package(s)')
     op_type.add_argument('--duploader-daemon', action = 'store_true', help = 'Start duploader daemon')
+    op_type.add_argument('--repo-daemon', action = 'store_true', help = 'Start repository daemon')
     op_type.add_argument('--update-repo', nargs='?', help = 'Update repository metadata')
     parser.add_argument('--from', type = str, help = 'From repo')
     parser.add_argument('--to', type = str, help = 'To repo')
@@ -38,8 +38,11 @@ if __name__  == '__main__':
     parser.add_argument('pkgs', type = str, nargs = '*')
     args = parser.parse_args()
 
+    import common
     common.config = common.load_config(args.config)
     common.db = common.connect_mongo(common.config['metadb'])['repos']
+
+    import repo_manage, repo_daemon, duploader
 
     if args.upload:
         repo_manage.upload_packages(args.to, args.env, args.pkgs)
@@ -47,5 +50,7 @@ if __name__  == '__main__':
         repo_manage.update_repo_metadata(args.update_repo, args.env)
     elif args.duploader_daemon:
         duploader.start_duploader()
+    elif args.repo_daemon:
+        repo_daemon.start_daemon()
 
 
