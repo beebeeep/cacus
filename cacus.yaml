@@ -1,6 +1,11 @@
+#storage:
+#    type: FileStorage
+#    path: /home/dmiga/test-repo/pool
+
 storage:
-    type: FileStorage
-    path: /home/dmiga/test-repo/pool
+    type: MDSStorage
+    base_url: "http://storage-int.mdst.yandex.net:1111/upload-repo/" 
+    auth_header: ["Authorization", "Basic cmVwbzplYTdiNzIzMmE2MGE4YjNiMmFiMmRhNjBlZjEwMDUwMA=="]
 
 metadb:
     type: single_mongo

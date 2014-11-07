@@ -9,6 +9,7 @@ import time
 import re
 from binascii import hexlify
 from minidinstall import DebianSigVerifier, ChangeFile, GPGSigVerifier
+from tornado.ioloop import IOLoop
 
 import repo_manage
 import common
@@ -64,6 +65,9 @@ class EventHandler(pyinotify.ProcessEvent):
             for f in incoming_files:
                 os.unlink(f)
 
+def handle_files(notifier):
+    pass
+
 def start_duploader():
     for repo, param in common.config['repos'].iteritems():
         handler = EventHandler(repo = repo)
@@ -74,3 +78,12 @@ def start_duploader():
         notifier.start()
 
 
+def start_tornado_duploader():
+    # tornado is cool but we need to implement async processing of all incoming files...
+    # not sure we really need this now
+    wm = pyinotify.WatchManager()
+    for repo, param in common.config['repos'].iteritems():
+        wdd = wm.add_watch(param['incoming_dir'], pyinotify.IN_CLOSE_WRITE)
+    ioloop = IOLoop.instance()
+    notifier = pyinotify.TornadoAsyncNotifier(wm, ioloop, callback = handle_files)
+    ioloop.start()
