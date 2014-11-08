@@ -3,6 +3,7 @@
 
 import argparse
 import logging
+import sys
 
 
 logFormatter = logging.Formatter("%(asctime)s [%(levelname)-7.7s] %(name)s: %(message)s")
@@ -45,7 +46,9 @@ if __name__  == '__main__':
     import repo_manage, repo_daemon, duploader
 
     if args.upload:
-        repo_manage.upload_packages(args.to, args.env, args.pkgs)
+        #repo_manage.upload_packages(args.to, args.env, args.pkgs)
+        print "This option is broken for current moment"
+        sys.exit(1)
     elif args.update_repo:
         repo_manage.update_repo_metadata(args.update_repo, args.env)
     elif args.duploader_daemon:

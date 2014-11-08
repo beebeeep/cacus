@@ -34,5 +34,14 @@ def get_hashes(file):
 
     return {'md5': md5.digest(), 'sha1': sha1.digest(), 'sha256': sha256.digest(), 'sha512': sha512.digest()}
 
+
+# As far as mongodb does not accept dot symbol in document keys
+# we should replace all dots in filenames (that are used as keys) with smth else
+def sanitize_filename(file):
+    return file.replace(".", "___")
+
+def desanitize_filename(file):
+    return file.replace("___", ".")
+
 config = None
 db = None

@@ -17,18 +17,22 @@ class PackagesHandler(RequestHandler):
     def get(self, repo = None, env = None):
         cursor = db.repos[repo].find({'environment': env}, {'environment': 0, '_id': 0})
         while (yield cursor.fetch_next):
-            for k, v in cursor.next_object().iteritems():
-                if k == 'md5':
-                    self.write("MD5sum: {0}\n".format(hexlify(v)))
-                elif k == 'sha1':
-                    self.write("SHA1: {0}\n".format(hexlify(v)))
-                elif k == 'sha256':
-                    self.write("SHA256: {0}\n".format(hexlify(v)))
-                elif k == 'sha512':
-                    self.write("SHA512: {0}\n".format(hexlify(v)))
-                else:
-                    self.write("{0}: {1}\n".format(k.capitalize(), v))
-            self.write("\n")
+            pkg = cursor.next_object()
+            for deb in pkg['debs']:
+                for k,v in deb.iteritems():
+                    if k == 'md5':
+                        self.write("MD5sum: {0}\n".format(hexlify(v)))
+                    elif k == 'sha1':
+                        self.write("SHA1: {0}\n".format(hexlify(v)))
+                    elif k == 'sha256':
+                        self.write("SHA256: {0}\n".format(hexlify(v)))
+                    elif k == 'sha512':
+                        self.write("SHA512: {0}\n".format(hexlify(v)))
+                    elif k == 'storage_key':
+                        self.write("Filename: {0}\n".format(v))
+                    else:
+                        self.write("{0}: {1}\n".format(k.capitalize(), v))
+                self.write("\n")
 
 def make_app():
     packages_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Packages$".format(

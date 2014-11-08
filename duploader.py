@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 import os
 import sys
@@ -28,6 +29,12 @@ class EventHandler(pyinotify.ProcessEvent):
         self.log = logging.getLogger('cacus.duploader.{0}'.format(repo))
 
     def process_IN_CLOSE_WRITE(self, event):
+
+
+        ################################################## TODO ########################
+        ####    Надо разобраться с пакетами, состоящими из нескольких Binary и одного Source
+        ####    типа yandex-sakila-mongo
+        ####
         self.log.info("Got file %s", event.pathname)
 
         # this will only work if .changes file are uploaded AFTER .deb, .dsc etc 
@@ -59,7 +66,7 @@ class EventHandler(pyinotify.ProcessEvent):
             # all new packages are going to unstable
             # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
             log.info("Uploading %s to repo '%s', environment 'unstable'", incoming_files, self.repo)
-            repo_manage.upload_packages(self.repo, 'unstable', incoming_files)
+            repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
             log.info("Updating '%s' repo metadata", self.repo)
             repo_manage.update_repo_metadata(self.repo, 'unstable')
             for f in incoming_files:
