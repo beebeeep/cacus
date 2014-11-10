@@ -4,6 +4,7 @@
 import argparse
 import logging
 import sys
+import pprint
 
 
 logFormatter = logging.Formatter("%(asctime)s [%(levelname)-7.7s] %(name)s: %(message)s")
@@ -18,6 +19,8 @@ consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(logFormatter)
 log.addHandler(consoleHandler)
 
+env_choices = ['unstable', 'testing', 'prestable', 'stable']
+
 if __name__  == '__main__':
     parser = argparse.ArgumentParser(description='Cacus repo tool')
     parser.add_argument('-l', '--log', type = str, default = '/dev/stderr',
@@ -29,19 +32,21 @@ if __name__  == '__main__':
     op_type = parser.add_mutually_exclusive_group()
     op_type.add_argument('--upload', action = 'store_true', help = 'Upload package(s)')
     op_type.add_argument('--remove', action = 'store_true', help = 'Remove package(s)')
-    op_type.add_argument('--dmove', action = 'store_true', help = 'Dmove package(s)')
+    op_type.add_argument('--dmove', nargs = 2,  help = 'Dmove package(s)')
     op_type.add_argument('--duploader-daemon', action = 'store_true', help = 'Start duploader daemon')
     op_type.add_argument('--repo-daemon', action = 'store_true', help = 'Start repository daemon')
     op_type.add_argument('--update-repo', nargs='?', help = 'Update repository metadata')
-    parser.add_argument('--from', type = str, help = 'From repo')
-    parser.add_argument('--to', type = str, help = 'To repo')
-    parser.add_argument('--env', choices = ['unstable', 'testing', 'prestable', 'stable'], help = 'Environment')
+    parser.add_argument('--from', choices = env_choices, help = 'From env')
+    parser.add_argument('--to', choices = env_choices, help = 'To env')
+    parser.add_argument('--repo', type = str, help = 'Repository')
+    parser.add_argument('--env', choices = env_choices, help = 'Environment')
     parser.add_argument('pkgs', type = str, nargs = '*')
     args = parser.parse_args()
 
     import common
     common.config = common.load_config(args.config)
-    common.db = common.connect_mongo(common.config['metadb'])['repos']
+    common.db_repos = common.connect_mongo(common.config['metadb'])['repos']
+    common.db_cacus = common.connect_mongo(common.config['metadb'])['cacus']
 
     import repo_manage, repo_daemon, duploader
 
@@ -55,5 +60,8 @@ if __name__  == '__main__':
         duploader.start_duploader()
     elif args.repo_daemon:
         repo_daemon.start_daemon()
+    elif args.dmove:
+        repo_manage.dmove_package(pkg = args.dmove[0], ver = args.dmove[1],
+                repo =  args.repo, src = args.__getattribute__('from'), dst = args.to)
 
 

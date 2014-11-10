@@ -25,7 +25,7 @@ def upload_package(repo, env, files, changes):
         filename = os.path.basename(file)
         base_key = "{0}/{1}".format(repo, filename)
 
-        p = common.db[repo].find_one({'Source': changes['source'], 'Version': changes['version']})
+        p = common.db_repos[repo].find_one({'Source': changes['source'], 'Version': changes['version']})
         if p:
             log.warning("%s is already uploaded to repo '%s', environment '%s'", base_key, repo, p['environment'])
             continue
@@ -82,19 +82,24 @@ def upload_package(repo, env, files, changes):
                             meta['dsc'][k] = v
 
     pprint.pprint(meta)
-    common.db[repo].insert(meta)
+    common.db_repos[repo].insert(meta)
 
 def update_repo_metadata(repo, env):
+    """
     fname = "{0}/{1}/Packages.gz".format(common.config['repos'][repo]['repo_root'], env)
     log.info("Generating %s", fname)
     if not os.path.isdir(os.path.dirname(fname)):
         os.mkdir(os.path.dirname(fname))
     with gzip.GzipFile(fname, 'w') as packages_file:
         generate_packages_file(repo, env, packages_file)
+    """
+
+    common.db_cacus[repo].update({'environment': env}, {'$set': {'lastupdated': "XXX"}, True)
+
 
 def generate_packages_file(repo, env, file):
     data = ""
-    repo = common.db[repo].find({'environment': env})
+    repo = common.db_repos[repo].find({'environment': env})
     for pkg in repo:
         for deb in pkg['debs']:
             for k,v in deb.iteritems():
@@ -112,3 +117,20 @@ def generate_packages_file(repo, env, file):
                     data += "{0}: {1}\n".format(k.capitalize(), v)
             data += "\n"
     file.write(data)
+
+def dmove_package(pkg = None,  ver = None, repo = None, src = None, dst = None):
+    result = common.db_repos[repo].update(
+            {'Source': pkg, 'Version': ver, 'environment': src },
+            {'$set': {'environment': dst}}, False, w = 1)
+    if result['n'] == 0:
+        log.error("Cannot find package '%s_%s' in repo '%s' at env %s", pkg, ver, repo, src)
+    elif result['nModified'] == 0:
+        log.warning("Package '%s_%s' is already in repo '%s' at env %s", pkg, ver, repo, src)
+    else:
+        log.info("Package '%s_%s' was dmoved in repo '%s' from %s to %s", pkg, ver, repo, src, dst)
+
+    update_repo_metadata(repo, src)
+    update_repo_metadata(repo, dst)
+
+
+
