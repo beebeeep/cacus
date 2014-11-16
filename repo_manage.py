@@ -7,6 +7,7 @@ import sys
 import stat
 from debian import debfile, deb822
 from binascii import hexlify
+from datetime import datetime
 import logging
 import pprint
 
@@ -34,8 +35,8 @@ def upload_package(repo, env, files, changes):
             hashes = common.get_hashes(f)
 
         log.info("Uploading %s to repo '%s' environment '%s'", base_key, repo, env)
-        #storage_key = loader.get_plugin('storage').put(base_key, file)
-        storage_key = base_key
+        storage_key = "/storage/" + loader.get_plugin('storage').put(base_key, file)
+        #storage_key = base_key
 
         meta['environment'] = env
         meta['Source'] = changes['source']
@@ -65,6 +66,7 @@ def upload_package(repo, env, files, changes):
                 meta['sources'] = []
 
             meta['sources'].append({
+                'name': filename,
                 'size': os.stat(file)[stat.ST_SIZE],
                 'sha512': binary.Binary(hashes['sha512']),
                 'sha256': binary.Binary(hashes['sha256']),
@@ -94,7 +96,7 @@ def update_repo_metadata(repo, env):
         generate_packages_file(repo, env, packages_file)
     """
 
-    common.db_cacus[repo].update({'environment': env}, {'$set': {'lastupdated': "XXX"}, True)
+    common.db_cacus[repo].update({'environment': env}, {'$set': {'lastupdated': datetime.utcnow() }}, True)
 
 
 def generate_packages_file(repo, env, file):
