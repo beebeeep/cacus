@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import sys
 from tornado.ioloop import IOLoop
 from tornado.web import RequestHandler, Application, url, asynchronous
 from tornado import gen
+import tornado.options
 import logging
 import motor
 from binascii import hexlify
@@ -11,7 +13,6 @@ from binascii import hexlify
 import common
 
 db = motor.MotorClient(host = common.config['metadb']['host'], port = common.config['metadb']['port'])
-access_log = logging.getLogger('tornado.access')
 
 class PackagesHandler(RequestHandler):
     @asynchronous
@@ -68,11 +69,19 @@ class SourcesHandler(RequestHandler):
 
 ### TODO: check if apt-get can handle redirects and send 301 
 ### or just use X-Accel-Redirect to tell nginx URL to stream file from storage
-class SourcesHandler(RequestHandler):
+class SourcesFilesHandler(RequestHandler):
     @asynchronous
     @gen.coroutine
     def get(self, repo = None, env = None, file = None):
-        self.send_error(501, "Not implemented yet")
+        doc = yield  db.repos[repo].find_one({'environment': env, 'sources.name': file},
+                {'sources.storage_key': 1, 'sources.name': 1})
+        for f in doc['sources']:
+            if f['name'] == file:
+                url = "{0}{1}".format('/proxy-mds', f['storage_key'])
+                logging.info("Redirecting %s to %s", file, url)
+                self.add_header("X-Accel-Redirect", url)
+                break
+        self.set_status(200)
 
 def make_app():
     packages_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$".format(
@@ -89,6 +98,10 @@ def make_app():
         ])
 
 def start_daemon():
+
+    # this shit is to make tornado enable its fucking logging system
+    sys.argv = sys.argv[0:1]
+    tornado.options.parse_command_line()
     app = make_app()
     app.listen(common.config['repo_daemon']['port'])
     IOLoop.current().start()

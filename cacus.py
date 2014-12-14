@@ -9,7 +9,7 @@ import pprint
 
 logFormatter = logging.Formatter("%(asctime)s [%(levelname)-7.7s] %(name)s: %(message)s")
 log = logging.getLogger('cacus')
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 
 #fileHandler = logging.FileHandler("cacus.log")
 #fileHandler.setFormatter(logFormatter)
