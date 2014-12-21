@@ -67,8 +67,6 @@ class EventHandler(pyinotify.ProcessEvent):
             # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
             log.info("Uploading %s to repo '%s', environment 'unstable'", incoming_files, self.repo)
             repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
-            log.info("Updating '%s' repo metadata", self.repo)
-            repo_manage.update_repo_metadata(self.repo, 'unstable')
             for f in incoming_files:
                 os.unlink(f)
 

@@ -8,8 +8,11 @@ import stat
 from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
+import hashlib
 import logging
 import pprint
+import gpgme
+from io import BytesIO
 
 import loader
 import common
@@ -22,6 +25,7 @@ def upload_package(repo, env, files, changes):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
     meta = {}
+    affected_arch = set()
     for file in files:
         filename = os.path.basename(file)
         base_key = "{0}/{1}".format(repo, filename)
@@ -57,6 +61,7 @@ def upload_package(repo, env, files, changes):
                     'storage_key': storage_key
                     }
             deb = debfile.DebFile(file)
+            affected_arch.add(deb.debcontrol()['Architecture'])
             for k,v in deb.debcontrol().iteritems():
                 doc[k] = v
             meta['debs'].append(doc)
@@ -83,27 +88,69 @@ def upload_package(repo, env, files, changes):
                         if not k.startswith('Checksums-') and k != 'Files':
                             meta['dsc'][k] = v
 
-    pprint.pprint(meta)
     common.db_repos[repo].insert(meta)
+    for arch in affected_arch:
+        log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
+        update_repo_metadata(repo, env, arch)
 
-def update_repo_metadata(repo, env):
+def update_repo_metadata(repo, env, arch):
     """
     fname = "{0}/{1}/Packages.gz".format(common.config['repos'][repo]['repo_root'], env)
     log.info("Generating %s", fname)
     if not os.path.isdir(os.path.dirname(fname)):
         os.mkdir(os.path.dirname(fname))
     with gzip.GzipFile(fname, 'w') as packages_file:
-        generate_packages_file(repo, env, packages_file)
+        for data in generate_packages_file(repo, env, arch):
+            packages_file.write(data)
     """
 
-    common.db_cacus[repo].update({'environment': env}, {'$set': {'lastupdated': datetime.utcnow() }}, True)
+    md5 = hashlib.md5()
+    sha1 = hashlib.sha1()
+    sha256 = hashlib.sha256()
+    size = 0
+    for data in generate_packages_file(repo, env, arch):
+        md5.update(data)
+        sha1.update(data)
+        sha256.update(data)
+        size += len(data)
 
+    #We don't need to generate Release file on-the-fly: it's small enough to put it directly to metabase
+    release = ""
+    now = datetime.utcnow()
+    release += "Origin: {0}\n".format(repo)
+    release += "Label: {0}\n".format(repo)
+    release += "Suite: {0}\n".format(env)
+    release += "Codename: {0}/{1}\n".format(env, arch)
+    release += "Date: {0}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
+    release += "Architectures: {0}\n".format(arch)
+    release += "Description: {0}\n".format(common.config['repos'][repo]['description'])
+    release += "MD5Sum:\n {0}\t{1} Packages\n".format(md5.hexdigest(), size)
+    release += "SHA1:\n {0}\t{1} Packages\n".format(sha1.hexdigest(), size)
+    release += "SHA256:\n {0}\t{1} Packages\n".format(sha256.hexdigest(), size)
+    ctx = gpgme.Context()
+    key = ctx.get_key(common.config['gpg']['sign_key'])
+    ctx.signers = [key]
+    ctx.armor = True
+    plain = BytesIO(release)
+    sign = BytesIO('')
+    sigs = ctx.sign(plain, sign, gpgme.SIG_MODE_DETACH)
+    release_gpg = sign.getvalue()
 
-def generate_packages_file(repo, env, file):
-    data = ""
-    repo = common.db_repos[repo].find({'environment': env})
+    common.db_cacus[repo].update({'environment': env, 'architecture': arch}, {'$set': {
+        'lastupdated': now,
+        'md5': binary.Binary(md5.digest()),
+        'sha1': binary.Binary(sha1.digest()),
+        'sha256': binary.Binary(sha256.digest()),
+        'size': size,
+        'release_file': release,
+        'release_gpg': release_gpg
+        }}, True)
+
+def generate_packages_file(repo, env, arch):
+    repo = common.db_repos[repo].find({'environment': env, 'debs.Architecture': arch})
     for pkg in repo:
         for deb in pkg['debs']:
+            data = ""
             for k,v in deb.iteritems():
                 if k == 'md5':
                     data += "MD5sum: {0}\n".format(hexlify(v))
@@ -118,7 +165,7 @@ def generate_packages_file(repo, env, file):
                 else:
                     data += "{0}: {1}\n".format(k.capitalize(), v)
             data += "\n"
-    file.write(data)
+            yield data
 
 def dmove_package(pkg = None,  ver = None, repo = None, src = None, dst = None):
     result = common.db_repos[repo].update(

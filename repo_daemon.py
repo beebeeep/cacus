@@ -13,6 +13,8 @@ from binascii import hexlify
 import common
 
 db = motor.MotorClient(host = common.config['metadb']['host'], port = common.config['metadb']['port'])
+log = logging.getLogger('tornado')
+log.setLevel(logging.DEBUG)
 
 class PackagesHandler(RequestHandler):
     @asynchronous
@@ -65,10 +67,6 @@ class SourcesHandler(RequestHandler):
 
             self.write("\n")
 
-
-
-### TODO: check if apt-get can handle redirects and send 301 
-### or just use X-Accel-Redirect to tell nginx URL to stream file from storage
 class SourcesFilesHandler(RequestHandler):
     @asynchronous
     @gen.coroutine
@@ -83,8 +81,20 @@ class SourcesFilesHandler(RequestHandler):
                 break
         self.set_status(200)
 
+class ReleaseHandler(RequestHandler):
+    @asynchronous
+    @gen.coroutine
+    def get(self, repo = None, env = None, arch = None, gpg = None):
+        doc = yield db.cacus[repo].find_one({'environment': env, 'architecture': arch})
+        if gpg:
+            self.write(doc['release_gpg'])
+        else:
+            self.write(doc['release_gpg'])
+
 def make_app():
     packages_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$".format(
+            common.config['repo_daemon']['repo_base'])
+    release_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$".format(
             common.config['repo_daemon']['repo_base'])
     sources_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$".format(
             common.config['repo_daemon']['repo_base'])
@@ -93,15 +103,15 @@ def make_app():
 
     return Application([
         url(packages_re, PackagesHandler),
+        url(release_re, ReleaseHandler),
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler)
         ])
 
 def start_daemon():
 
-    # this shit is to make tornado enable its fucking logging system
-    sys.argv = sys.argv[0:1]
-    tornado.options.parse_command_line()
+    #sys.argv = sys.argv[0:1]
+    #tornado.options.parse_command_line()
     app = make_app()
     app.listen(common.config['repo_daemon']['port'])
     IOLoop.current().start()

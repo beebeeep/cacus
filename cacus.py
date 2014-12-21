@@ -49,7 +49,11 @@ if __name__  == '__main__':
     common.db_cacus = common.connect_mongo(common.config['metadb'])['cacus']
 
     import repo_manage, repo_daemon, duploader
-
+    """
+    for d in repo_manage.generate_packages_file('common', 'unstable', 'amd64'):
+      sys.stdout.write(d)
+    sys.exit(0)
+    """
     if args.upload:
         #repo_manage.upload_packages(args.to, args.env, args.pkgs)
         print "This option is broken for current moment"
