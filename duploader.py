@@ -11,6 +11,7 @@ import re
 from binascii import hexlify
 from minidinstall import DebianSigVerifier, ChangeFile, GPGSigVerifier
 from tornado.ioloop import IOLoop
+import threading
 
 import repo_manage
 import common
@@ -27,48 +28,62 @@ class EventHandler(pyinotify.ProcessEvent):
     def __init__(self, repo = None):
         self.repo = repo
         self.log = logging.getLogger('cacus.duploader.{0}'.format(repo))
+        self.uploaded_files = set()
+        self.uploaded_event = threading.Event()
 
-    def process_IN_CLOSE_WRITE(self, event):
+    def _processChangesFile(self, event):
+        self.log.info("Processing .changes file %s", event.pathname)
+        incoming_files = [event.pathname]
+        current_hash = None
+        changes = ChangeFile.ChangeFile()
+        changes.load_from_file(event.pathname)
+        changes.filename = event.pathname
 
+        # .changes file contatins all incoming files and its checksums, so 
+        # check if all files are available of wait for them
+        for f in changes.getFiles():
+            filename = os.path.join(event.path, f[2])
+            self.log.info("Looking for %s from .changes", filename)
+            while True:
+                if filename in self.uploaded_files:
+                    self.uploaded_files.remove(filename)
+                    incoming_files.append(filename)
+                    break
+                else:
+                    self.log.debug("Could not find %s, waiting...", filename)
+                    self.uploaded_event.wait(1)
 
-        ################################################## TODO ########################
-        ####    Надо разобраться с пакетами, состоящими из нескольких Binary и одного Source
-        ####    типа yandex-sakila-mongo
-        ####
-        self.log.info("Got file %s", event.pathname)
-
-        # this will only work if .changes file are uploaded AFTER .deb, .dsc etc 
-        # TODO: mb we should start new thread and just wait several seconds until all necessary files becomes available
-        if event.pathname.endswith(".changes"):
-            incoming_files = [event.pathname]
-            current_hash = None
-            changes = ChangeFile.ChangeFile()
-            changes.load_from_file(event.pathname)
-            changes.filename = event.pathname
-
-            for f in changes.getFiles():
-                filename = os.path.join(event.path, f[2])
-                incoming_files.append(filename)
-
-            # TODO: add reject dir and metadb collection and store all rejected files there
-            try:
-                changes.verify(event.path)
-                verifier.verify(changes.filename)
-            except ChangeFile.ChangeFileException as e:
-                log.error("Checksum verification failed: %s", e)
-                for f in incoming_files:
-                    os.unlink(f)
-            except GPGSigVerifier.GPGSigVerificationFailure as e:
-                log.error("PGP signature verification failed: %s", e)
-                for f in incoming_files:
-                    os.unlink(f)
-
-            # all new packages are going to unstable
-            # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
-            log.info("Uploading %s to repo '%s', environment 'unstable'", incoming_files, self.repo)
-            repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
+        # TODO: add reject dir and metadb collection and store all rejected files there
+        try:
+            changes.verify(event.path)
+            verifier.verify(changes.filename)
+        except ChangeFile.ChangeFileException as e:
+            self.log.error("Checksum verification failed: %s", e)
             for f in incoming_files:
                 os.unlink(f)
+        except GPGSigVerifier.GPGSigVerificationFailure as e:
+            self.log.error("PGP signature verification failed: %s", e)
+            for f in incoming_files:
+                os.unlink(f)
+
+        # all new packages are going to unstable
+        # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
+        self.log.info("Uploading %s to repo '%s', environment 'unstable'", incoming_files, self.repo)
+        repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
+        for f in incoming_files:
+            os.unlink(f)
+
+    def process_IN_CLOSE_WRITE(self, event):
+        self.log.info("Got file %s", event.pathname)
+        if event.pathname.endswith(".changes"):
+            thread = threading.Thread(target = self._processChangesFile, args = (event,))
+            #thread.daemon = True
+            thread.start()
+        else:
+            # store uploaded file and send event to all waiting threads
+            self.uploaded_files.add(event.pathname)
+            self.uploaded_event.set()
+            self.uploaded_event.clear()
 
 def handle_files(notifier):
     pass
