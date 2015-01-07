@@ -26,18 +26,18 @@ class PackagesHandler(RequestHandler):
             for deb in pkg['debs']:
                 for k,v in deb.iteritems():
                     if k == 'md5':
-                        self.write("MD5sum: {0}\n".format(hexlify(v)))
+                        self.write(u"MD5sum: {0}\n".format(hexlify(v)))
                     elif k == 'sha1':
-                        self.write("SHA1: {0}\n".format(hexlify(v)))
+                        self.write(u"SHA1: {0}\n".format(hexlify(v)))
                     elif k == 'sha256':
-                        self.write("SHA256: {0}\n".format(hexlify(v)))
+                        self.write(u"SHA256: {0}\n".format(hexlify(v)))
                     elif k == 'sha512':
-                        self.write("SHA512: {0}\n".format(hexlify(v)))
+                        self.write(u"SHA512: {0}\n".format(hexlify(v)))
                     elif k == 'storage_key':
-                        self.write("Filename: {0}\n".format(v))
+                        self.write(u"Filename: {0}\n".format(v))
                     else:
-                        self.write("{0}: {1}\n".format(k.capitalize(), v))
-                self.write("\n")
+                        self.write(u"{0}: {1}\n".format(k.capitalize(), v))
+                self.write(u"\n")
 
 class SourcesHandler(RequestHandler):
     @asynchronous
@@ -48,24 +48,24 @@ class SourcesHandler(RequestHandler):
             pkg = cursor.next_object()
             for k,v in pkg['dsc'].iteritems():
                 if k == 'Source':
-                    self.write("Package: {0}\n".format(v))
+                    self.write(u"Package: {0}\n".format(v))
                 else:
-                    self.write("{0}: {1}\n".format(k.capitalize(), v))
-            self.write("Directory: {0}/source\n".format(env))
+                    self.write(u"{0}: {1}\n".format(k.capitalize(), v))
+            self.write(u"Directory: {0}/source\n".format(env))
             files = filter(lambda x: x['name'].endswith('.tar.gz') or x['name'].endswith('.dsc'), pkg['sources'])
 
             def gen_para(algo, files):
                 for f in files:
-                    self.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['name']))
+                    self.write(u" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['name']))
 
-            self.write("Files: \n")
+            self.write(u"Files: \n")
             gen_para('md5', files)
-            self.write("Checksums-Sha1: \n")
+            self.write(u"Checksums-Sha1: \n")
             gen_para('sha1', files)
-            self.write("Checksums-Sha256: \n")
+            self.write(u"Checksums-Sha256: \n")
             gen_para('sha256', files)
 
-            self.write("\n")
+            self.write(u"\n")
 
 class SourcesFilesHandler(RequestHandler):
     @asynchronous
@@ -89,7 +89,7 @@ class ReleaseHandler(RequestHandler):
         if gpg:
             self.write(doc['release_gpg'])
         else:
-            self.write(doc['release_gpg'])
+            self.write(doc['release_file'])
 
 def make_app():
     packages_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$".format(

@@ -8,10 +8,12 @@ import pyinotify
 import pprint
 import time
 import re
-from binascii import hexlify
-from minidinstall import DebianSigVerifier, ChangeFile, GPGSigVerifier
-from tornado.ioloop import IOLoop
+import gpgme
 import threading
+from binascii import hexlify
+from minidinstall import ChangeFile, DebianSigVerifier
+from io import BytesIO
+from tornado.ioloop import IOLoop
 
 import repo_manage
 import common
@@ -21,8 +23,9 @@ files_re = re.compile('^ (?P<hash>[0-9A-Za-z]+) (?P<size>\d+) (?P<section>\w+) (
 
 log = logging.getLogger('cacus.duploader')
 
-# TODO: get keyrings from APT config Dir::Etc::trusted
-verifier = DebianSigVerifier.DebianSigVerifier(keyrings = ['/etc/apt/trusted.gpg'])
+
+# consider using gpgme instead
+verifier = DebianSigVerifier.DebianSigVerifier(keyrings = common.config['gpg']['keyrings'])
 
 class EventHandler(pyinotify.ProcessEvent):
     def __init__(self, repo = None):
@@ -57,19 +60,36 @@ class EventHandler(pyinotify.ProcessEvent):
         try:
             changes.verify(event.path)
             verifier.verify(changes.filename)
+            signer = "stub"
+            """
+            ### gpgme suffers from some multithread issues sometimes:
+            ### _gpgme_ath_mutex_lock: Assertion `*lock == ((ath_mutex_t) 0)' failed.
+            ### TODO: manage this shit end switch to gpgme
+            ### (minidinstall calls external gpgv process, i don't like it)
+            ctx = gpgme.Context()
+            cleartext = BytesIO('')
+            signer = None
+            with open(changes.filename, 'r') as f:
+                result = ctx.verify(f, 0, cleartext)
+                if result[0].validity != gpgme.VALIDITY_FULL:
+                    raise Exception("File signed with untrusted key {0}".format(result[0].fpr))
+                signer_key = ctx.get_key(result[0].fpr)
+                uid = signer_key.uids[0]
+                signer = "{0} <{1}>".format(uid.name, uid.email)
+            """
         except ChangeFile.ChangeFileException as e:
             self.log.error("Checksum verification failed: %s", e)
-            for f in incoming_files:
-                os.unlink(f)
-        except GPGSigVerifier.GPGSigVerificationFailure as e:
-            self.log.error("PGP signature verification failed: %s", e)
-            for f in incoming_files:
-                os.unlink(f)
+        except gpgme.GpgmeError as e:
+            self.log.error("Cannot check PGP signature: %s", e)
+        except Exception as e:
+            self.log.error("%s verification failed: %s", event.pathname, e)
+        else:
+            # all new packages are going to unstable
+            # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
+            self.log.info("%s: signed by %s: OK, checksums: OK, uploading to repo '%s', environment 'unstable'", event.pathname, signer, self.repo)
+            repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
 
-        # all new packages are going to unstable
-        # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
-        self.log.info("Uploading %s to repo '%s', environment 'unstable'", incoming_files, self.repo)
-        repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
+        # in any case, clean up all incoming files
         for f in incoming_files:
             os.unlink(f)
 

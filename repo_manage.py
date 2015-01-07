@@ -109,29 +109,30 @@ def update_repo_metadata(repo, env, arch):
     sha256 = hashlib.sha256()
     size = 0
     for data in generate_packages_file(repo, env, arch):
+        data = data.encode('utf-8')
         md5.update(data)
         sha1.update(data)
         sha256.update(data)
         size += len(data)
 
     #We don't need to generate Release file on-the-fly: it's small enough to put it directly to metabase
-    release = ""
+    release = u""
     now = datetime.utcnow()
-    release += "Origin: {0}\n".format(repo)
-    release += "Label: {0}\n".format(repo)
-    release += "Suite: {0}\n".format(env)
-    release += "Codename: {0}/{1}\n".format(env, arch)
-    release += "Date: {0}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
-    release += "Architectures: {0}\n".format(arch)
-    release += "Description: {0}\n".format(common.config['repos'][repo]['description'])
-    release += "MD5Sum:\n {0}\t{1} Packages\n".format(md5.hexdigest(), size)
-    release += "SHA1:\n {0}\t{1} Packages\n".format(sha1.hexdigest(), size)
-    release += "SHA256:\n {0}\t{1} Packages\n".format(sha256.hexdigest(), size)
+    release += u"Origin: {0}\n".format(repo)
+    release += u"Label: {0}\n".format(repo)
+    release += u"Suite: {0}\n".format(env)
+    release += u"Codename: {0}/{1}\n".format(env, arch)
+    release += u"Date: {0}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
+    release += u"Architectures: {0}\n".format(arch)
+    release += u"Description: {0}\n".format(common.config['repos'][repo]['description'])
+    release += u"MD5Sum:\n {0}\t{1} Packages\n".format(md5.hexdigest(), size)
+    release += u"SHA1:\n {0}\t{1} Packages\n".format(sha1.hexdigest(), size)
+    release += u"SHA256:\n {0}\t{1} Packages\n".format(sha256.hexdigest(), size)
     ctx = gpgme.Context()
     key = ctx.get_key(common.config['gpg']['sign_key'])
     ctx.signers = [key]
     ctx.armor = True
-    plain = BytesIO(release)
+    plain = BytesIO(release.encode('utf-8'))
     sign = BytesIO('')
     sigs = ctx.sign(plain, sign, gpgme.SIG_MODE_DETACH)
     release_gpg = sign.getvalue()
@@ -150,21 +151,22 @@ def generate_packages_file(repo, env, arch):
     repo = common.db_repos[repo].find({'environment': env, 'debs.Architecture': arch})
     for pkg in repo:
         for deb in pkg['debs']:
-            data = ""
+            data = u""
             for k,v in deb.iteritems():
+
                 if k == 'md5':
-                    data += "MD5sum: {0}\n".format(hexlify(v))
+                    data += u"MD5sum: {0}\n".format(hexlify(v))
                 elif k == 'sha1':
-                    data += "SHA1: {0}\n".format(hexlify(v))
+                    data += u"SHA1: {0}\n".format(hexlify(v))
                 elif k == 'sha256':
-                    data += "SHA256: {0}\n".format(hexlify(v))
+                    data += u"SHA256: {0}\n".format(hexlify(v))
                 elif k == 'sha512':
-                    data += "SHA512: {0}\n".format(hexlify(v))
+                    data += u"SHA512: {0}\n".format(hexlify(v))
                 elif k == 'storage_key':
-                    data += "Filename: {0}\n".format(v)
+                    data += u"Filename: {0}\n".format(v)
                 else:
-                    data += "{0}: {1}\n".format(k.capitalize(), v)
-            data += "\n"
+                    data += u"{0}: {1}\n".format(k.capitalize(), v)
+            data += u"\n"
             yield data
 
 def dmove_package(pkg = None,  ver = None, repo = None, src = None, dst = None):

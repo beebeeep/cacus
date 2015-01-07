@@ -17,9 +17,11 @@ repo_daemon:
     repo_base: '/debian'
 
 repos:
+    yandex-trusty:
+        incoming_dir: /home/dmiga/test-repo/incoming/yandex-trusty
+        description: Do not forget description
     yandex-precise:
         incoming_dir: /home/dmiga/test-repo/incoming/yandex-precise
-        repo_root: /home/dmiga/test-repo/yandex-precise
         description: Do not forget description
     common:
         incoming_dir: /home/dmiga/test-repo/incoming/common
@@ -28,5 +30,7 @@ repos:
     
 
 gpg:
-    keyring: "/path/to/keyring"  # not working :) just start daemon with right environment
-    sign_key: D423659A
+    keyrings:           # keyrings for gpgv utility 
+        - /etc/apt/trusted.gpg
+        - /home/dmiga/.gnupg/pubring.gpg
+    sign_key: D423659A          # make sure to setup correct gnupg environment (see gpg(1))
