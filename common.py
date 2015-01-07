@@ -4,6 +4,9 @@
 import yaml
 import pymongo
 import hashlib
+import logging
+import sys
+from pyme import core
 
 
 def connect_mongo(cfg):
@@ -11,9 +14,16 @@ def connect_mongo(cfg):
         return pymongo.Connection(host = cfg['host'], port = cfg['port'])
 
 def load_config(config_file):
+    config = None
     with open(config_file) as cfg:
         config = yaml.load(cfg)
-        return config
+    ctx = core.Context()
+    keys = [x for x in ctx.op_keylist_all(config['gpg']['signer'],1)]
+    if len(keys) < 1:
+        logging.critical("Cannot find suitable keys for %s", config['gpg']['signer'])
+        sys.exit(1)
+
+    return config
 
 def get_hashes(file):
     md5 = hashlib.md5()

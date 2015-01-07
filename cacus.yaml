@@ -16,21 +16,22 @@ repo_daemon:
     port: 1488
     repo_base: '/debian'
 
-repos:
-    yandex-trusty:
-        incoming_dir: /home/dmiga/test-repo/incoming/yandex-trusty
-        description: Do not forget description
-    yandex-precise:
-        incoming_dir: /home/dmiga/test-repo/incoming/yandex-precise
-        description: Do not forget description
-    common:
-        incoming_dir: /home/dmiga/test-repo/incoming/common
-        repo_root: /home/dmiga/test-repo/common
-        description: Do not forget description
+duploader_daemon:
+    incoming_wait_timeout: 3
+    repos:
+        yandex-trusty:
+            incoming_dir: /home/dmiga/test-repo/incoming/yandex-trusty
+            description: Do not forget description
+        yandex-precise:
+            incoming_dir: /home/dmiga/test-repo/incoming/yandex-precise
+            description: Do not forget description
+        common:
+            incoming_dir: /home/dmiga/test-repo/incoming/common
+            repo_root: /home/dmiga/test-repo/common
+            description: Do not forget description
     
 
-gpg:
-    keyrings:           # keyrings for gpgv utility 
-        - /etc/apt/trusted.gpg
-        - /home/dmiga/.gnupg/pubring.gpg
-    sign_key: D423659A          # make sure to setup correct gnupg environment (see gpg(1))
+# make sure daemon is started under correct GPG environment 
+# to find all trusted and signing keys (see gpg(1) for more info)
+gpg:    
+    signer: root@cacus.haze.yandex.net

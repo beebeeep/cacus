@@ -1,22 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from bson import binary
 import os
 import sys
 import stat
-from debian import debfile, deb822
-from binascii import hexlify
-from datetime import datetime
 import hashlib
 import logging
 import pprint
-import gpgme
-from io import BytesIO
+import gzip
+from debian import debfile, deb822
+from binascii import hexlify
+from datetime import datetime
+from pyme import core
+from pyme.constants.sig import mode
+from bson import binary
 
 import loader
 import common
-import gzip
 
 log = logging.getLogger('cacus.repo_manage')
 
@@ -124,18 +124,20 @@ def update_repo_metadata(repo, env, arch):
     release += u"Codename: {0}/{1}\n".format(env, arch)
     release += u"Date: {0}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
     release += u"Architectures: {0}\n".format(arch)
-    release += u"Description: {0}\n".format(common.config['repos'][repo]['description'])
+    release += u"Description: {0}\n".format(common.config['duploader_daemon']['repos'][repo]['description'])
     release += u"MD5Sum:\n {0}\t{1} Packages\n".format(md5.hexdigest(), size)
     release += u"SHA1:\n {0}\t{1} Packages\n".format(sha1.hexdigest(), size)
     release += u"SHA256:\n {0}\t{1} Packages\n".format(sha256.hexdigest(), size)
-    ctx = gpgme.Context()
-    key = ctx.get_key(common.config['gpg']['sign_key'])
-    ctx.signers = [key]
-    ctx.armor = True
-    plain = BytesIO(release.encode('utf-8'))
-    sign = BytesIO('')
-    sigs = ctx.sign(plain, sign, gpgme.SIG_MODE_DETACH)
-    release_gpg = sign.getvalue()
+
+    sig = core.Data()
+    plain = core.Data(release.encode('utf-8'))
+    ctx = core.Context()
+    ctx.set_armor(1)
+    signer = ctx.op_keylist_all(common.config['gpg']['signer'],1).next()
+    ctx.signers_add(signer)
+    ctx.op_sign(plain, sig, mode.DETACH)
+    sig.seek(0,0)
+    release_gpg = sig.read()
 
     common.db_cacus[repo].update({'environment': env, 'architecture': arch}, {'$set': {
         'lastupdated': now,

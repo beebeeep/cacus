@@ -8,12 +8,13 @@ import pyinotify
 import pprint
 import time
 import re
-import gpgme
 import threading
 from binascii import hexlify
 from minidinstall import ChangeFile, DebianSigVerifier
 from io import BytesIO
 from tornado.ioloop import IOLoop
+from pyme import core, errors
+from pyme.constants.sig import mode
 
 import repo_manage
 import common
@@ -23,16 +24,26 @@ files_re = re.compile('^ (?P<hash>[0-9A-Za-z]+) (?P<size>\d+) (?P<section>\w+) (
 
 log = logging.getLogger('cacus.duploader')
 
-
-# consider using gpgme instead
-verifier = DebianSigVerifier.DebianSigVerifier(keyrings = common.config['gpg']['keyrings'])
-
 class EventHandler(pyinotify.ProcessEvent):
     def __init__(self, repo = None):
         self.repo = repo
         self.log = logging.getLogger('cacus.duploader.{0}'.format(repo))
         self.uploaded_files = set()
+        self.uploaded_files_lock = threading.Lock()
         self.uploaded_event = threading.Event()
+
+    def _gpgCheck(self, filename):
+        ctx = core.Context()
+        file = core.Data(file = filename)
+        plain = core.Data()
+        ctx.op_verify(file, None, plain)
+        result = ctx.op_verify_result()
+        signer_key = ctx.get_key(result.signatures[0].fpr, 0)
+        uid = signer_key.uids[0]
+        signer = "{0} <{1}>".format(uid.name, uid.email)
+        if result.signatures[0].status != 0:
+            raise Exception("File signed with untrusted key {0} ({1})".format(signer_key, signer))
+        return signer
 
     def _processChangesFile(self, event):
         self.log.info("Processing .changes file %s", event.pathname)
@@ -42,56 +53,55 @@ class EventHandler(pyinotify.ProcessEvent):
         changes.load_from_file(event.pathname)
         changes.filename = event.pathname
 
+        try:
+            signer = self._gpgCheck(changes.filename)
+        except errors.GPGMEError as e:
+            self.log.error("Cannot check PGP signature: %s", e)
+            map(os.unlink, incoming_files)
+            return
+        except Exception as e:
+            self.log.error("%s verification failed: %s", event.pathname, e)
+            map(os.unlink, incoming_files)
+            return
+
+        self.log.info("%s: signed by %s: OK, looking for incoming files", event.pathname, signer)
+
         # .changes file contatins all incoming files and its checksums, so 
         # check if all files are available of wait for them
         for f in changes.getFiles():
             filename = os.path.join(event.path, f[2])
             self.log.info("Looking for %s from .changes", filename)
             while True:
+                # uploaded_files stores all files in incoming directory uploaded so far
                 if filename in self.uploaded_files:
-                    self.uploaded_files.remove(filename)
+                    # eeeh, we're under GIL, yea? do we really need to take a lock here?
+                    with self.uploaded_files_lock:
+                        self.uploaded_files.remove(filename)
                     incoming_files.append(filename)
                     break
                 else:
                     self.log.debug("Could not find %s, waiting...", filename)
-                    self.uploaded_event.wait(1)
+                    r = self.uploaded_event.wait(common.config['duploader_daemon']['incoming_wait_timeout'])
+                    if not r:
+                        # we don't get all files from .changes in time, clean up and exit
+                        # TODO: add to rejected
+                        map(os.unlink, incoming_files)
+                        return
 
         # TODO: add reject dir and metadb collection and store all rejected files there
         try:
             changes.verify(event.path)
-            verifier.verify(changes.filename)
-            signer = "stub"
-            """
-            ### gpgme suffers from some multithread issues sometimes:
-            ### _gpgme_ath_mutex_lock: Assertion `*lock == ((ath_mutex_t) 0)' failed.
-            ### TODO: manage this shit end switch to gpgme
-            ### (minidinstall calls external gpgv process, i don't like it)
-            ctx = gpgme.Context()
-            cleartext = BytesIO('')
-            signer = None
-            with open(changes.filename, 'r') as f:
-                result = ctx.verify(f, 0, cleartext)
-                if result[0].validity != gpgme.VALIDITY_FULL:
-                    raise Exception("File signed with untrusted key {0}".format(result[0].fpr))
-                signer_key = ctx.get_key(result[0].fpr)
-                uid = signer_key.uids[0]
-                signer = "{0} <{1}>".format(uid.name, uid.email)
-            """
         except ChangeFile.ChangeFileException as e:
             self.log.error("Checksum verification failed: %s", e)
-        except gpgme.GpgmeError as e:
-            self.log.error("Cannot check PGP signature: %s", e)
-        except Exception as e:
-            self.log.error("%s verification failed: %s", event.pathname, e)
         else:
             # all new packages are going to unstable
             # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
-            self.log.info("%s: signed by %s: OK, checksums: OK, uploading to repo '%s', environment 'unstable'", event.pathname, signer, self.repo)
+            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to repo '%s', environment 'unstable'",
+                    changes['source'], changes['version'], self.repo)
             repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
 
         # in any case, clean up all incoming files
-        for f in incoming_files:
-            os.unlink(f)
+        map(os.unlink, incoming_files)
 
     def process_IN_CLOSE_WRITE(self, event):
         self.log.info("Got file %s", event.pathname)
@@ -109,7 +119,7 @@ def handle_files(notifier):
     pass
 
 def start_duploader():
-    for repo, param in common.config['repos'].iteritems():
+    for repo, param in common.config['duploader_daemon']['repos'].iteritems():
         handler = EventHandler(repo = repo)
         wm = pyinotify.WatchManager()
         notifier = pyinotify.ThreadedNotifier(wm, handler)
