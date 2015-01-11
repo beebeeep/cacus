@@ -3,21 +3,9 @@
 
 import argparse
 import logging
+import logging.handlers
 import sys
 import pprint
-
-
-logFormatter = logging.Formatter("%(asctime)s [%(levelname)-7.7s] %(name)s: %(message)s")
-log = logging.getLogger('cacus')
-log.setLevel(logging.DEBUG)
-
-#fileHandler = logging.FileHandler("cacus.log")
-#fileHandler.setFormatter(logFormatter)
-#log.addHandler(fileHandler)
-
-consoleHandler = logging.StreamHandler()
-consoleHandler.setFormatter(logFormatter)
-log.addHandler(consoleHandler)
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 
@@ -32,10 +20,11 @@ if __name__  == '__main__':
     op_type = parser.add_mutually_exclusive_group()
     op_type.add_argument('--upload', action = 'store_true', help = 'Upload package(s)')
     op_type.add_argument('--remove', action = 'store_true', help = 'Remove package(s)')
-    op_type.add_argument('--dmove', nargs = 2,  help = 'Dmove package(s)')
+    op_type.add_argument('--dmove', nargs = 2, metavar = ('PKG', 'VER'), help = 'Dmove package(s)')
     op_type.add_argument('--duploader-daemon', action = 'store_true', help = 'Start duploader daemon')
     op_type.add_argument('--repo-daemon', action = 'store_true', help = 'Start repository daemon')
-    op_type.add_argument('--update-repo', nargs='?', help = 'Update repository metadata')
+    op_type.add_argument('--update-repo', metavar = 'REPO', nargs='?', help = 'Update repository metadata')
+    op_type.add_argument('--import-repo', type = str, metavar = 'PATH', help = 'Import mounted dist.yandex.ru repo')
     parser.add_argument('--from', choices = env_choices, help = 'From env')
     parser.add_argument('--to', choices = env_choices, help = 'To env')
     parser.add_argument('--repo', type = str, help = 'Repository')
@@ -48,12 +37,26 @@ if __name__  == '__main__':
     common.db_repos = common.connect_mongo(common.config['metadb'])['repos']
     common.db_cacus = common.connect_mongo(common.config['metadb'])['cacus']
 
-    import repo_manage, repo_daemon, duploader
-    """
-    for d in repo_manage.generate_packages_file('common', 'unstable', 'amd64'):
-      sys.stdout.write(d)
-    sys.exit(0)
-    """
+    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
+    log = logging.getLogger('cacus')
+    log.setLevel(logging.DEBUG)
+
+    handlers = []
+    dst = common.config['logging']['destinations']
+    if dst['console']:
+        h = logging.StreamHandler()
+        h.setFormatter(logFormatter)
+        log.addHandler(h)
+    if dst['file']:
+        h = logging.handlers.WatchedFileHandler(dst['file'])
+        h.setFormatter(logFormatter)
+        log.addHandler(h)
+    if dst['syslog']:
+        h = logging.handlers.SysLogHandler(facility = dst['syslog'])
+        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
+        log.addHandler(h)
+
+    import repo_manage, repo_daemon, duploader, dist_importer
     if args.upload:
         #repo_manage.upload_packages(args.to, args.env, args.pkgs)
         print "This option is broken for current moment"
@@ -67,5 +70,5 @@ if __name__  == '__main__':
     elif args.dmove:
         repo_manage.dmove_package(pkg = args.dmove[0], ver = args.dmove[1],
                 repo =  args.repo, src = args.__getattribute__('from'), dst = args.to)
-
-
+    elif args.import_repo:
+        dist_importer.import_repo(path = args.import_repo, repo = args.repo, env = args.env)

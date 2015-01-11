@@ -14,13 +14,9 @@ from minidinstall import ChangeFile, DebianSigVerifier
 from io import BytesIO
 from tornado.ioloop import IOLoop
 from pyme import core, errors
-from pyme.constants.sig import mode
 
 import repo_manage
 import common
-
-chksum_re = re.compile('^ (?P<hash>[0-9A-Za-z]+) (?P<size>\d+) (?P<fname>[-+_.a-z0-9]+)$')
-files_re = re.compile('^ (?P<hash>[0-9A-Za-z]+) (?P<size>\d+) (?P<section>\w+) (?P<priority>\w+) (?P<fname>[-+_.a-z0-9]+)$')
 
 log = logging.getLogger('cacus.duploader')
 

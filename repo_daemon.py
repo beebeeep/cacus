@@ -43,7 +43,7 @@ class SourcesHandler(RequestHandler):
     @asynchronous
     @gen.coroutine
     def get(self, repo = None, env = None):
-        cursor = db.repos[repo].find({'environment': env}, {'dsc': 1, 'sources': 1})
+        cursor = db.repos[repo].find({'environment': env, 'dsc': {'$exists': True} }, {'dsc': 1, 'sources': 1})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             for k,v in pkg['dsc'].iteritems():

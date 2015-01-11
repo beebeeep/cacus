@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 from yapsy.IPlugin import IPlugin
 import plugins
 
+log = logging.getLogger('cacus.mds_storage')
+
 class MDSStorage(plugins.IStoragePlugin):
     def configure(self, config):
         self.base_url = config['base_url']
@@ -19,7 +21,6 @@ class MDSStorage(plugins.IStoragePlugin):
         with open(filename, 'rb') as f:
             file =  mmap.mmap(f.fileno(), 0, access = mmap.ACCESS_READ)
             url = "{0}{1}".format(self.base_url, key)
-            print("HTTP POST {0}".format(url))
 
             request = urllib2.Request(url, file)
             request.add_header(self.auth_header[0], self.auth_header[1])
@@ -29,19 +30,19 @@ class MDSStorage(plugins.IStoragePlugin):
                 response = ET.fromstring(response_fp.read())
                 file.close()
             except urllib2.URLError as e:
-                print "Error requesting {0}: {1}".format(url, e)
+                log.error("Error requesting %s: %s", url, e)
                 return None
             except urllib2.HTTPError as e:
-                print "Error requesting {0}: {1}".format(url ,e)
+                log.error("Error requesting %s: %s", url, e)
                 return None
 
 
             try:
                 storage_key = response.attrib['key']
             except KeyError:
-                print "Wrong return from server"
+                log.error("Wrong return from server")
                 return None
-            print "Got storage key {0}".format(storage_key)
+            log.debug("Got storage key '%s'", storage_key)
 
         return storage_key
 

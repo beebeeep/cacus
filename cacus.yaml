@@ -7,6 +7,12 @@ storage:
     base_url: "http://storage-int.mdst.yandex.net:1111/upload-repo/" 
     auth_header: ["Authorization", "Basic cmVwbzplYTdiNzIzMmE2MGE4YjNiMmFiMmRhNjBlZjEwMDUwMA=="]
 
+logging:
+    level: DEBUG 
+    destinations:
+        console: true
+        syslog: False       # or syslog facility (daemon, user etc)
+        file: /var/log/cacus.log
 metadb:
     type: single_mongo
     host: localhost
