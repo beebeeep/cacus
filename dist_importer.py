@@ -25,7 +25,7 @@ def import_repo(path = None, repo = 'common', env = 'unstable'):
         log.info("Importing %s-%s to %s %s", changes['source'], changes['version'], repo, env)
         for f in (x[2] for x in changes.getFiles()):
             filename = ""
-            if f.endswith('.deb'):
+            if f.endswith('.deb') or f.endswith('.udeb'):
                 count += 1
                 if f.find('_amd64') >= 0:
                     filename = os.path.join(path, 'amd64', f)
@@ -41,8 +41,10 @@ def import_repo(path = None, repo = 'common', env = 'unstable'):
 
             if not os.path.isfile(filename):
                 log.error("%s (%s): file not found", filename, f)
-                sys.exit(1)
+                #sys.exit(1)
+                break
             else:
                 pkg_files.append(filename)
-        repo_manage.upload_package(repo, env, pkg_files, changes)
+        else:   # if we don't break'ed because of some error
+            repo_manage.upload_package(repo, env, pkg_files, changes)
     log.info("Import from %s completed, uploaded %s packages to %s %s", path, count, repo, env)

@@ -61,6 +61,7 @@ class RepoLock:
         self.collection = collection
         self.repo = repo
         self.env = env
+        self.timeout = timeout
         self.log = logging.getLogger("cacus.RepoLock")
     def __enter__(self):
         self.log.debug("Trying to lock %s/%s", self.repo, self.env)
@@ -76,13 +77,13 @@ class RepoLock:
                 break
             except pymongo.errors.DuplicateKeyError as e:
                 time.sleep(1)
-                timeout -= 1
-                if timeout <= 0:
-                    raise RepoLockTimeout("Cannot lock repo {0}/{1}".format(self.repo, self.env))
+                self.timeout -= 1
+                if self.timeout <= 0:
+                    raise RepoLockTimeout("Timeout while trying to lock repo {0}/{1}".format(self.repo, self.env))
             except:
                 self.log.error("Error while locking %s/%s: %s", self.repo, self.env, sys.exc_info())
                 break
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         try:
             db_cacus.locks.find_and_modify(
                     query =  {'repo': self.repo, 'env': self.env, 'locked': 1},

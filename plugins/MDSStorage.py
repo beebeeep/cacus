@@ -6,6 +6,7 @@ import urllib2
 import mmap
 import logging
 import xml.etree.ElementTree as ET
+import time
 
 from yapsy.IPlugin import IPlugin
 import plugins
@@ -25,17 +26,20 @@ class MDSStorage(plugins.IStoragePlugin):
             request = urllib2.Request(url, file)
             request.add_header(self.auth_header[0], self.auth_header[1])
 
-            try:
-                response_fp = urllib2.urlopen(request)
-                response = ET.fromstring(response_fp.read())
-                file.close()
-            except urllib2.URLError as e:
-                log.error("Error requesting %s: %s", url, e)
+            for n_try in xrange(3):
+                try:
+                    response_fp = urllib2.urlopen(request)
+                    response = ET.fromstring(response_fp.read())
+                    file.close()
+                    break
+                except urllib2.URLError as e:
+                    log.error("Error requesting %s: %s", url, e)
+                except urllib2.HTTPError as e:
+                    log.error("Error requesting %s: %s", url, e)
+                time.sleep(1)
+            else:
+                log.critical("Cannot upload %s", filename)
                 return None
-            except urllib2.HTTPError as e:
-                log.error("Error requesting %s: %s", url, e)
-                return None
-
 
             try:
                 storage_key = response.attrib['key']
