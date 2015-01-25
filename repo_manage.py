@@ -21,7 +21,7 @@ import common
 log = logging.getLogger('cacus.repo_manage')
 
 #def upload_package(repo, env, files, pkg_name = None, pkg_ver = None):
-def upload_package(repo, env, files, changes):
+def upload_package(repo, env, files, changes, skipUpdateMeta = False):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
     meta = {}
@@ -92,9 +92,11 @@ def upload_package(repo, env, files, changes):
     try:
         with common.RepoLock(common.db_cacus.locks, repo, env):
             common.db_repos[repo].insert(meta)
-            for arch in affected_arch:
-                log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
-                update_repo_metadata(repo, env, arch)
+
+            if not skipUpdateMeta:
+                for arch in affected_arch:
+                    log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
+                    update_repo_metadata(repo, env, arch)
     except common.RepoLockTimeout as e:
         log.error("Error updating repo: %s", e)
 

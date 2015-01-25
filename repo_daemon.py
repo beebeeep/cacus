@@ -4,22 +4,59 @@
 import sys
 from tornado.ioloop import IOLoop
 from tornado.web import RequestHandler, Application, url, asynchronous
-from tornado import gen
+from tornado import gen, httputil, httpserver
 import tornado.options
 import logging
 import motor
 from binascii import hexlify
+import email.utils
+import time
+import pprint
 
 import common
 
-db = motor.MotorClient(host = common.config['metadb']['host'], port = common.config['metadb']['port'])
 log = logging.getLogger('tornado')
 log.setLevel(logging.DEBUG)
 
-class PackagesHandler(RequestHandler):
-    @asynchronous
+class MyRequestHandler(RequestHandler):
+    def prepare(self):
+        pass
+    @gen.coroutine
+    def _cache_expired(self, repo, env, arch = '__all__'):
+        db = self.settings['db']
+        revalidate = True
+        latest_dt = None
+        selector = {'environment': env}
+        if (arch != '__all__'):
+            selector['architecture'] = arch
+        repos = db.cacus[repo].find(selector, {'lastupdated': 1})
+        while (yield repos.fetch_next):
+            dt = repos.next_object()['lastupdated']
+            if not latest_dt or dt > latest_dt:
+                latest_dt = dt
+
+        if_modified = self.request.headers.get('If-Modified-Since')
+        if not if_modified:
+            raise gen.Return((True, latest_dt))
+
+        cached_dt = email.utils.parsedate(if_modified)
+        cached_ts = time.mktime(cached_dt)
+        latest_ts = time.mktime(latest_dt.timetuple())
+        if latest_ts <= cached_ts:
+            raise gen.Return((False, latest_dt))
+        else:
+            raise gen.Return((True, latest_dt))
+
+class PackagesHandler(MyRequestHandler):
     @gen.coroutine
     def get(self, repo = None, env = None, arch = None):
+        db = self.settings['db']
+        (expired, dt) = yield self._cache_expired(repo, env, arch)
+        if not expired:
+            self.set_status(304)
+            return
+        self.add_header("Last-Modified", httputil.format_timestamp(dt))
+
         cursor = db.repos[repo].find({'environment': env, 'debs.Architecture': arch}, {'environment': 0, '_id': 0})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
@@ -39,10 +76,16 @@ class PackagesHandler(RequestHandler):
                         self.write(u"{0}: {1}\n".format(k.capitalize(), v))
                 self.write(u"\n")
 
-class SourcesHandler(RequestHandler):
-    @asynchronous
+class SourcesHandler(MyRequestHandler):
     @gen.coroutine
     def get(self, repo = None, env = None):
+        db = self.settings['db']
+        (expired, dt) = yield self._cache_expired(repo, env, '__all__')
+        if not expired:
+            self.set_status(304)
+            return
+        self.add_header("Last-Modified", httputil.format_timestamp(dt))
+
         cursor = db.repos[repo].find({'environment': env, 'dsc': {'$exists': True} }, {'dsc': 1, 'sources': 1})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
@@ -67,10 +110,10 @@ class SourcesHandler(RequestHandler):
 
             self.write(u"\n")
 
-class SourcesFilesHandler(RequestHandler):
-    @asynchronous
+class SourcesFilesHandler(MyRequestHandler):
     @gen.coroutine
     def get(self, repo = None, env = None, file = None):
+        db = self.settings['db']
         doc = yield  db.repos[repo].find_one({'environment': env, 'sources.name': file},
                 {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
@@ -81,10 +124,17 @@ class SourcesFilesHandler(RequestHandler):
                 break
         self.set_status(200)
 
-class ReleaseHandler(RequestHandler):
+class ReleaseHandler(MyRequestHandler):
     @asynchronous
     @gen.coroutine
     def get(self, repo = None, env = None, arch = None, gpg = None):
+        db = self.settings['db']
+        (expired, dt) = yield self._cache_expired(repo, env, arch)
+        if not expired:
+            self.set_status(304)
+            return
+        self.add_header("Last-Modified", httputil.format_timestamp(dt))
+
         doc = yield db.cacus[repo].find_one({'environment': env, 'architecture': arch})
         if gpg:
             self.write(doc['release_gpg'])
@@ -109,10 +159,10 @@ def make_app():
         ])
 
 def start_daemon():
-
-    #sys.argv = sys.argv[0:1]
-    #tornado.options.parse_command_line()
     app = make_app()
-    app.listen(common.config['repo_daemon']['port'])
-    IOLoop.current().start()
-
+    server = httpserver.HTTPServer(app)
+    server.bind(common.config['repo_daemon']['port'])
+    server.start(0)
+    db = motor.MotorClient(host = common.config['metadb']['host'], port = common.config['metadb']['port'])
+    app.settings['db'] = db
+    IOLoop.instance().start()

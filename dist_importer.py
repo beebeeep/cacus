@@ -46,5 +46,9 @@ def import_repo(path = None, repo = 'common', env = 'unstable'):
             else:
                 pkg_files.append(filename)
         else:   # if we don't break'ed because of some error
-            repo_manage.upload_package(repo, env, pkg_files, changes)
+            repo_manage.upload_package(repo, env, pkg_files, changes, skipUpdateMeta = True)
+    for arch in ('amd64', 'all', 'i386'):
+        log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
+        repo_manage.update_repo_metadata(repo, env, arch)
+
     log.info("Import from %s completed, uploaded %s packages to %s %s", path, count, repo, env)
