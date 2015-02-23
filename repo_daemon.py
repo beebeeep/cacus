@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+
 import sys
 from tornado.ioloop import IOLoop
 from tornado.web import RequestHandler, Application, url, asynchronous
@@ -110,6 +111,7 @@ class SourcesHandler(MyRequestHandler):
 
             self.write(u"\n")
 
+
 class SourcesFilesHandler(MyRequestHandler):
     @gen.coroutine
     def get(self, repo = None, env = None, file = None):
@@ -142,14 +144,11 @@ class ReleaseHandler(MyRequestHandler):
             self.write(doc['release_file'])
 
 def make_app():
-    packages_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$".format(
-            common.config['repo_daemon']['repo_base'])
-    release_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$".format(
-            common.config['repo_daemon']['repo_base'])
-    sources_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$".format(
-            common.config['repo_daemon']['repo_base'])
-    sources_files_re = r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$".format(
-            common.config['repo_daemon']['repo_base'])
+    base = common.config['repo_daemon']['repo_base']
+    packages_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$"
+    release_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$"
+    sources_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$"
+    sources_files_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
 
     return Application([
         url(packages_re, PackagesHandler),
