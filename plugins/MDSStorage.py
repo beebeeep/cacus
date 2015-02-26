@@ -13,14 +13,16 @@ import plugins
 
 log = logging.getLogger('cacus.mds_storage')
 
+
 class MDSStorage(plugins.IStoragePlugin):
+
     def configure(self, config):
         self.base_url = config['base_url']
         self.auth_header = config['auth_header']
 
     def put(self, key, filename):
         with open(filename, 'rb') as f:
-            file =  mmap.mmap(f.fileno(), 0, access = mmap.ACCESS_READ)
+            file = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
             url = "{0}{1}".format(self.base_url, key)
 
             request = urllib2.Request(url, file)

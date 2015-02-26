@@ -20,8 +20,10 @@ import common
 
 log = logging.getLogger('cacus.duploader')
 
+
 class EventHandler(pyinotify.ProcessEvent):
-    def __init__(self, repo = None):
+
+    def __init__(self, repo=None):
         self.repo = repo
         self.log = logging.getLogger('cacus.duploader.{0}'.format(repo))
         self.uploaded_files = set()
@@ -30,7 +32,7 @@ class EventHandler(pyinotify.ProcessEvent):
 
     def _gpgCheck(self, filename):
         ctx = core.Context()
-        file = core.Data(file = filename)
+        file = core.Data(file=filename)
         plain = core.Data()
         ctx.op_verify(file, None, plain)
         result = ctx.op_verify_result()
@@ -62,7 +64,7 @@ class EventHandler(pyinotify.ProcessEvent):
 
         self.log.info("%s: signed by %s: OK, looking for incoming files", event.pathname, signer)
 
-        # .changes file contatins all incoming files and its checksums, so 
+        # .changes file contatins all incoming files and its checksums, so
         # check if all files are available of wait for them
         for f in changes.getFiles():
             filename = os.path.join(event.path, f[2])
@@ -91,10 +93,10 @@ class EventHandler(pyinotify.ProcessEvent):
             self.log.error("Checksum verification failed: %s", e)
         else:
             # all new packages are going to unstable
-            # TODO: take kinda distributed lock before updating metadata and uploading file to storage 
+            # TODO: take kinda distributed lock before updating metadata and uploading file to storage
             self.log.info("%s-%s: sign: OK, checksums: OK, uploading to repo '%s', environment 'unstable'",
-                    changes['source'], changes['version'], self.repo)
-            repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes = changes)
+                          changes['source'], changes['version'], self.repo)
+            repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes=changes)
 
         # in any case, clean up all incoming files
         map(os.unlink, incoming_files)
@@ -102,7 +104,7 @@ class EventHandler(pyinotify.ProcessEvent):
     def process_IN_CLOSE_WRITE(self, event):
         self.log.info("Got file %s", event.pathname)
         if event.pathname.endswith(".changes"):
-            thread = threading.Thread(target = self._processChangesFile, args = (event,))
+            thread = threading.Thread(target=self._processChangesFile, args=(event,))
             #thread.daemon = True
             thread.start()
         else:
@@ -111,12 +113,14 @@ class EventHandler(pyinotify.ProcessEvent):
             self.uploaded_event.set()
             self.uploaded_event.clear()
 
+
 def handle_files(notifier):
     pass
 
+
 def start_duploader():
     for repo, param in common.config['duploader_daemon']['repos'].iteritems():
-        handler = EventHandler(repo = repo)
+        handler = EventHandler(repo=repo)
         wm = pyinotify.WatchManager()
         notifier = pyinotify.ThreadedNotifier(wm, handler)
         wdd = wm.add_watch(param['incoming_dir'], pyinotify.ALL_EVENTS)
@@ -131,5 +135,5 @@ def start_tornado_duploader():
     for repo, param in common.config['repos'].iteritems():
         wdd = wm.add_watch(param['incoming_dir'], pyinotify.IN_CLOSE_WRITE)
     ioloop = IOLoop.instance()
-    notifier = pyinotify.TornadoAsyncNotifier(wm, ioloop, callback = handle_files)
+    notifier = pyinotify.TornadoAsyncNotifier(wm, ioloop, callback=handle_files)
     ioloop.start()

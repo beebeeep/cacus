@@ -10,6 +10,7 @@ import logging
 loaded_plugins = {}
 log = logging.getLogger('cacus.loader')
 
+
 def load_plugins():
     manager = PluginManagerSingleton.get()
     manager.setPluginPlaces(['plugins/'])

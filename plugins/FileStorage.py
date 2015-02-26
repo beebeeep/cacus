@@ -6,7 +6,9 @@ from shutil import copy
 from yapsy.IPlugin import IPlugin
 import plugins
 
+
 class FileStorage(plugins.IStoragePlugin):
+
     def configure(self, config):
         self.root = config['path']
 

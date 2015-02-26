@@ -19,11 +19,14 @@ import common
 log = logging.getLogger('tornado')
 log.setLevel(logging.DEBUG)
 
+
 class MyRequestHandler(RequestHandler):
+
     def prepare(self):
         pass
+
     @gen.coroutine
-    def _cache_expired(self, repo, env, arch = '__all__'):
+    def _cache_expired(self, repo, env, arch='__all__'):
         db = self.settings['db']
         revalidate = True
         latest_dt = None
@@ -48,9 +51,11 @@ class MyRequestHandler(RequestHandler):
         else:
             raise gen.Return((True, latest_dt))
 
+
 class PackagesHandler(MyRequestHandler):
+
     @gen.coroutine
-    def get(self, repo = None, env = None, arch = None):
+    def get(self, repo=None, env=None, arch=None):
         db = self.settings['db']
         (expired, dt) = yield self._cache_expired(repo, env, arch)
         if not expired:
@@ -62,7 +67,7 @@ class PackagesHandler(MyRequestHandler):
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             for deb in pkg['debs']:
-                for k,v in deb.iteritems():
+                for k, v in deb.iteritems():
                     if k == 'md5':
                         self.write(u"MD5sum: {0}\n".format(hexlify(v)))
                     elif k == 'sha1':
@@ -77,9 +82,11 @@ class PackagesHandler(MyRequestHandler):
                         self.write(u"{0}: {1}\n".format(k.capitalize(), v))
                 self.write(u"\n")
 
+
 class SourcesHandler(MyRequestHandler):
+
     @gen.coroutine
-    def get(self, repo = None, env = None):
+    def get(self, repo=None, env=None):
         db = self.settings['db']
         (expired, dt) = yield self._cache_expired(repo, env, '__all__')
         if not expired:
@@ -87,10 +94,10 @@ class SourcesHandler(MyRequestHandler):
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        cursor = db.repos[repo].find({'environment': env, 'dsc': {'$exists': True} }, {'dsc': 1, 'sources': 1})
+        cursor = db.repos[repo].find({'environment': env, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
-            for k,v in pkg['dsc'].iteritems():
+            for k, v in pkg['dsc'].iteritems():
                 if k == 'Source':
                     self.write(u"Package: {0}\n".format(v))
                 else:
@@ -113,11 +120,12 @@ class SourcesHandler(MyRequestHandler):
 
 
 class SourcesFilesHandler(MyRequestHandler):
+
     @gen.coroutine
-    def get(self, repo = None, env = None, file = None):
+    def get(self, repo=None, env=None, file=None):
         db = self.settings['db']
-        doc = yield  db.repos[repo].find_one({'environment': env, 'sources.name': file},
-                {'sources.storage_key': 1, 'sources.name': 1})
+        doc = yield db.repos[repo].find_one({'environment': env, 'sources.name': file},
+                                            {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
                 url = "{0}{1}".format('/proxy-mds', f['storage_key'])
@@ -126,10 +134,12 @@ class SourcesFilesHandler(MyRequestHandler):
                 break
         self.set_status(200)
 
+
 class ReleaseHandler(MyRequestHandler):
+
     @asynchronous
     @gen.coroutine
-    def get(self, repo = None, env = None, arch = None, gpg = None):
+    def get(self, repo=None, env=None, arch=None, gpg=None):
         db = self.settings['db']
         (expired, dt) = yield self._cache_expired(repo, env, arch)
         if not expired:
@@ -142,6 +152,7 @@ class ReleaseHandler(MyRequestHandler):
             self.write(doc['release_gpg'])
         else:
             self.write(doc['release_file'])
+
 
 def make_app():
     base = common.config['repo_daemon']['repo_base']
@@ -157,11 +168,12 @@ def make_app():
         url(sources_files_re, SourcesFilesHandler)
         ])
 
+
 def start_daemon():
     app = make_app()
     server = httpserver.HTTPServer(app)
     server.bind(common.config['repo_daemon']['port'])
     server.start(0)
-    db = motor.MotorClient(host = common.config['metadb']['host'], port = common.config['metadb']['port'])
+    db = motor.MotorClient(host=common.config['metadb']['host'], port=common.config['metadb']['port'])
     app.settings['db'] = db
     IOLoop.instance().start()
