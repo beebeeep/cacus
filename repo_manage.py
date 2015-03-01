@@ -87,18 +87,20 @@ def upload_package(repo, env, files, changes, skipUpdateMeta = False):
                     for k,v in dsc.iteritems():
                         if not k.startswith('Checksums-') and k != 'Files':
                             meta['dsc'][k] = v
+    if affected_arch:
+        # critical section. updating meta DB
+        try:
+            with common.RepoLock(common.db_cacus.locks, repo, env):
+                common.db_repos[repo].insert(meta)
 
-    # critical section. updating meta DB
-    try:
-        with common.RepoLock(common.db_cacus.locks, repo, env):
-            common.db_repos[repo].insert(meta)
-
-            if not skipUpdateMeta:
-                for arch in affected_arch:
-                    log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
-                    update_repo_metadata(repo, env, arch)
-    except common.RepoLockTimeout as e:
-        log.error("Error updating repo: %s", e)
+                if not skipUpdateMeta:
+                    for arch in affected_arch:
+                        log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
+                        update_repo_metadata(repo, env, arch)
+        except common.RepoLockTimeout as e:
+            log.error("Error updating repo: %s", e)
+    else:
+        log.info("No changes made on repo %s/%s, skipping metadata update", repo, env)
 
 def update_repo_metadata(repo, env, arch):
     """

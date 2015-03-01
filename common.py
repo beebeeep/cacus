@@ -101,6 +101,7 @@ class RepoLock:
                     '$set': {'repo': self.repo, 'env': self.env, 'locked': 0},
                     '$currentDate': {'modified': {'$type': 'date'}}},
                 upsert=True)
+            self.log.debug("%s/%s unlocked", self.repo, self.env)
         except pymongo.errors.DuplicateKeyError as e:
             pass
         except:

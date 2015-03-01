@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
-import urllib2
-import mmap
+import requests
 import logging
 import xml.etree.ElementTree as ET
 import time
@@ -19,25 +18,26 @@ class MDSStorage(plugins.IStoragePlugin):
     def configure(self, config):
         self.base_url = config['base_url']
         self.auth_header = config['auth_header']
+        self.timeout = config['connect_timeout']
 
     def put(self, key, filename):
         with open(filename, 'rb') as f:
-            file = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
             url = "{0}{1}".format(self.base_url, key)
 
-            request = urllib2.Request(url, file)
-            request.add_header(self.auth_header[0], self.auth_header[1])
-
             for n_try in xrange(3):
+                f.seek(0)
                 try:
-                    response_fp = urllib2.urlopen(request)
-                    response = ET.fromstring(response_fp.read())
-                    file.close()
-                    break
-                except urllib2.URLError as e:
+                    response = requests.post(url, data=f, headers=self.auth_header, timeout=self.timeout)
+                    log.info("PUT %s %s %s", url, response.status_code, response.elapsed.total_seconds())
+                    if response.ok:
+                        response = ET.fromstring(response.content)
+                        break
+                except requests.exceptions.ConnectionError as e:
                     log.error("Error requesting %s: %s", url, e)
-                except urllib2.HTTPError as e:
+                except requests.exceptions.HTTPError as e:
                     log.error("Error requesting %s: %s", url, e)
+                except requests.exceptions.Timeout as e:
+                    log.error("Timeout requesting %s: %s", url, e)
                 time.sleep(1)
             else:
                 log.critical("Cannot upload %s", filename)
