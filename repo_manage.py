@@ -184,17 +184,34 @@ def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
     try:
         with common.RepoLock(common.db_cacus.locks, repo, src):
             with common.RepoLock(common.db_cacus.locks, repo, dst):
-                result = common.db_repos[repo].update(
-                    {'Source': pkg, 'Version': ver, 'environment': src},
-                    {'$set': {'environment': dst}}, False, w=1)
-                if result['n'] == 0:
-                    log.error("Cannot find package '%s_%s' in repo '%s' at env %s", pkg, ver, repo, src)
-                elif result['nModified'] == 0:
-                    log.warning("Package '%s_%s' is already in repo '%s' at env %s", pkg, ver, repo, src)
+                result = common.db_repos[repo].find_and_modify(
+                    query={'Source': pkg, 'Version': ver, 'environment': {'$in': [src, dst]}},
+                    update={'$set': {'environment': dst}},
+                    fields={'debs.Architecture': 1, 'environment': 1},
+                    upsert=False,
+                    new=False
+                )
+                if not result:
+                    msg = "Cannot find package '{}_{}' in repo '{}' at env {}".format(pkg, ver, repo, src)
+                    log.error(msg)
+                    return {'result': common.status.NOT_FOUND, 'msg': msg}
+                elif result['environment'] == dst:
+                    msg = "Package '{}_{}' is already in repo '{}' at env {}".format(pkg, ver, repo, src)
+                    log.warning(msg)
+                    return {'result': common.status.NO_CHANGES, 'msg': msg}
                 else:
-                    log.info("Package '%s_%s' was dmoved in repo '%s' from %s to %s", pkg, ver, repo, src, dst)
+                    msg = "Package '{}_{}' was dmoved in repo '{}' from {} to {}".format(pkg, ver, repo, src, dst)
+                    log.info(msg)
 
-                update_repo_metadata(repo, src)
-                update_repo_metadata(repo, dst)
+                affected_arch = set()
+                for d in result['debs']:
+                    affected_arch.add(d['Architecture'])
+                for arch in affected_arch:
+                    log.info("Updating '%s/%s/%s' repo metadata", repo, src, arch)
+                    update_repo_metadata(repo, src, arch)
+                    log.info("Updating '%s/%s/%s' repo metadata", repo, dst, arch)
+                    update_repo_metadata(repo, dst, arch)
+                return {'result': common.status.OK, 'msg': msg}
     except common.RepoLockTimeout as e:
-        log.error("Dmove failed: %s", e)
+        msg = "Dmove failed: {}".format(e)
+        return {'result': common.status.TIMEOUT, 'msg': msg}

@@ -2,25 +2,24 @@
 # -*- coding: utf-8 -*-
 
 
-import sys
 from tornado.ioloop import IOLoop
 from tornado.web import RequestHandler, Application, url, asynchronous
 from tornado import gen, httputil, httpserver
-import tornado.options
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import motor
 from binascii import hexlify
 import email.utils
 import time
-import pprint
 
 import common
+import repo_manage
 
 log = logging.getLogger('tornado')
 log.setLevel(logging.DEBUG)
 
 
-class MyRequestHandler(RequestHandler):
+class CachedRequestHandler(RequestHandler):
 
     def prepare(self):
         pass
@@ -28,7 +27,6 @@ class MyRequestHandler(RequestHandler):
     @gen.coroutine
     def _cache_expired(self, repo, env, arch='__all__'):
         db = self.settings['db']
-        revalidate = True
         latest_dt = None
         selector = {'environment': env}
         if (arch != '__all__'):
@@ -52,7 +50,7 @@ class MyRequestHandler(RequestHandler):
             raise gen.Return((True, latest_dt))
 
 
-class PackagesHandler(MyRequestHandler):
+class PackagesHandler(CachedRequestHandler):
 
     @gen.coroutine
     def get(self, repo=None, env=None, arch=None):
@@ -83,7 +81,7 @@ class PackagesHandler(MyRequestHandler):
                 self.write(u"\n")
 
 
-class SourcesHandler(MyRequestHandler):
+class SourcesHandler(CachedRequestHandler):
 
     @gen.coroutine
     def get(self, repo=None, env=None):
@@ -119,7 +117,7 @@ class SourcesHandler(MyRequestHandler):
             self.write(u"\n")
 
 
-class SourcesFilesHandler(MyRequestHandler):
+class SourcesFilesHandler(CachedRequestHandler):
 
     @gen.coroutine
     def get(self, repo=None, env=None, file=None):
@@ -135,7 +133,7 @@ class SourcesFilesHandler(MyRequestHandler):
         self.set_status(200)
 
 
-class ReleaseHandler(MyRequestHandler):
+class ReleaseHandler(CachedRequestHandler):
 
     @asynchronous
     @gen.coroutine
@@ -154,18 +152,46 @@ class ReleaseHandler(MyRequestHandler):
             self.write(doc['release_file'])
 
 
+class ApiDmoveHandler(RequestHandler):
+    @asynchronous
+    @gen.coroutine
+    def post(self, repo=None):
+        repo = self.get_argument('repo')
+        pkg = self.get_argument('pkg')
+        ver = self.get_argument('ver')
+        src = self.get_argument('from')
+        dst = self.get_argument('to')
+        r = yield self.settings['workers'].submit(repo_manage.dmove_package, repo=repo, pkg=pkg, ver=ver, src=src, dst=dst)
+        if r['result'] == common.status.OK:
+            self.write({'success': True, 'msg': r['msg']})
+        elif r['result'] == common.status.NO_CHANGES:
+            self.write({'success': True, 'msg': r['msg']})
+        elif r['result'] == common.status.NOT_FOUND:
+            self.set_status(404)
+            self.write({'success': False, 'msg': r['msg']})
+        elif r['result'] == common.status.TIMEOUT:
+            # timeout on dmove can only if we cannot lock the repo,
+            # i.e. there is some other operation processing current repo
+            self.set_status(409)
+            self.write({'success': False, 'msg': r['msg']})
+
+
 def make_app():
     base = common.config['repo_daemon']['repo_base']
+
     packages_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$"
     release_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$"
     sources_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$"
     sources_files_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
 
+    api_dmove_re = base + r"/api/v1/dmove/(?P<repo>[-_.A-Za-z0-9]+)$"
+
     return Application([
         url(packages_re, PackagesHandler),
         url(release_re, ReleaseHandler),
         url(sources_re, SourcesHandler),
-        url(sources_files_re, SourcesFilesHandler)
+        url(sources_files_re, SourcesFilesHandler),
+        url(api_dmove_re, ApiDmoveHandler)
         ])
 
 
@@ -175,5 +201,7 @@ def start_daemon():
     server.bind(common.config['repo_daemon']['port'])
     server.start(0)
     db = motor.MotorClient(host=common.config['metadb']['host'], port=common.config['metadb']['port'])
+    thread_pool = ThreadPoolExecutor(100)
     app.settings['db'] = db
+    app.settings['workers'] = thread_pool
     IOLoop.instance().start()

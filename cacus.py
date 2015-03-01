@@ -61,7 +61,7 @@ if __name__ == '__main__':
     import duploader
     import dist_importer
     if args.upload:
-        #repo_manage.upload_packages(args.to, args.env, args.pkgs)
+        # repo_manage.upload_packages(args.to, args.env, args.pkgs)
         print "This option is broken for current moment"
         sys.exit(1)
     elif args.update_repo:

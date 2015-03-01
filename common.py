@@ -10,6 +10,14 @@ import time
 from pyme import core
 
 
+class Enum(set):
+
+    def __getattr__(self, name):
+        if name in self:
+            return name
+        raise AttributeError
+
+
 def connect_mongo(cfg):
     if cfg['type'] == 'single_mongo':
         return pymongo.Connection(host=cfg['host'], port=cfg['port'])
@@ -84,7 +92,7 @@ class RepoLock:
                     upsert=True)
                 self.log.debug("%s/%s locked", self.repo, self.env)
                 break
-            except pymongo.errors.DuplicateKeyError as e:
+            except pymongo.errors.DuplicateKeyError:
                 time.sleep(1)
                 self.timeout -= 1
                 if self.timeout <= 0:
@@ -102,7 +110,7 @@ class RepoLock:
                     '$currentDate': {'modified': {'$type': 'date'}}},
                 upsert=True)
             self.log.debug("%s/%s unlocked", self.repo, self.env)
-        except pymongo.errors.DuplicateKeyError as e:
+        except pymongo.errors.DuplicateKeyError:
             pass
         except:
             self.log.error("Error while unlocking %s/%s: %s", self.repo, self.env, sys.exc_info())
@@ -111,3 +119,4 @@ class RepoLock:
 config = None
 db_repos = None
 db_cacus = None
+status = Enum(['OK', 'NO_CHANGES', 'NOT_FOUND', 'ERROR', 'TIMEOUT'])
