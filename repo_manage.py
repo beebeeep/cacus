@@ -2,12 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import os
-import sys
 import stat
 import hashlib
 import logging
-import pprint
-import gzip
 from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
@@ -20,8 +17,8 @@ import common
 
 log = logging.getLogger('cacus.repo_manage')
 
-#def upload_package(repo, env, files, pkg_name = None, pkg_ver = None):
-def upload_package(repo, env, files, changes, skipUpdateMeta = False):
+
+def upload_package(repo, env, files, changes, skipUpdateMeta=False):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
     meta = {}
@@ -49,25 +46,25 @@ def upload_package(repo, env, files, changes, skipUpdateMeta = False):
         key_name = common.sanitize_filename(filename)
 
         if file.endswith('.deb') or file.endswith('.udeb'):
-            if not meta.has_key('debs'):
+            if 'debs' not in meta:
                 meta['debs'] = []
 
             doc = {
-                    'size': os.stat(file)[stat.ST_SIZE],
-                    'sha512': binary.Binary(hashes['sha512']),
-                    'sha256': binary.Binary(hashes['sha256']),
-                    'sha1': binary.Binary(hashes['sha1']),
-                    'md5': binary.Binary(hashes['md5']),
-                    'storage_key': storage_key
-                    }
+                'size': os.stat(file)[stat.ST_SIZE],
+                'sha512': binary.Binary(hashes['sha512']),
+                'sha256': binary.Binary(hashes['sha256']),
+                'sha1': binary.Binary(hashes['sha1']),
+                'md5': binary.Binary(hashes['md5']),
+                'storage_key': storage_key
+                }
             deb = debfile.DebFile(file)
             affected_arch.add(deb.debcontrol()['Architecture'])
-            for k,v in deb.debcontrol().iteritems():
+            for k, v in deb.debcontrol().iteritems():
                 doc[k] = v
             meta['debs'].append(doc)
 
         else:
-            if not meta.has_key('sources'):
+            if 'sources' not in meta:
                 meta['sources'] = []
 
             meta['sources'].append({
@@ -84,7 +81,7 @@ def upload_package(repo, env, files, changes, skipUpdateMeta = False):
                 meta['dsc'] = {}
                 with open(file) as f:
                     dsc = deb822.Dsc(f)
-                    for k,v in dsc.iteritems():
+                    for k, v in dsc.iteritems():
                         if not k.startswith('Checksums-') and k != 'Files':
                             meta['dsc'][k] = v
     if affected_arch:
@@ -101,6 +98,7 @@ def upload_package(repo, env, files, changes, skipUpdateMeta = False):
             log.error("Error updating repo: %s", e)
     else:
         log.info("No changes made on repo %s/%s, skipping metadata update", repo, env)
+
 
 def update_repo_metadata(repo, env, arch):
     """
@@ -124,7 +122,7 @@ def update_repo_metadata(repo, env, arch):
         sha256.update(data)
         size += len(data)
 
-    #We don't need to generate Release file on-the-fly: it's small enough to put it directly to metabase
+    # We don't need to generate Release file on-the-fly: it's small enough to put it directly to metabase
     release = u""
     now = datetime.utcnow()
     release += u"Origin: {0}\n".format(repo)
@@ -142,10 +140,10 @@ def update_repo_metadata(repo, env, arch):
     plain = core.Data(release.encode('utf-8'))
     ctx = core.Context()
     ctx.set_armor(1)
-    signer = ctx.op_keylist_all(common.config['gpg']['signer'],1).next()
+    signer = ctx.op_keylist_all(common.config['gpg']['signer'], 1).next()
     ctx.signers_add(signer)
     ctx.op_sign(plain, sig, mode.DETACH)
-    sig.seek(0,0)
+    sig.seek(0, 0)
     release_gpg = sig.read()
 
     common.db_cacus[repo].update({'environment': env, 'architecture': arch}, {'$set': {
@@ -158,12 +156,13 @@ def update_repo_metadata(repo, env, arch):
         'release_gpg': release_gpg
         }}, True)
 
+
 def generate_packages_file(repo, env, arch):
     repo = common.db_repos[repo].find({'environment': env, 'debs.Architecture': arch})
     for pkg in repo:
         for deb in pkg['debs']:
             data = u""
-            for k,v in deb.iteritems():
+            for k, v in deb.iteritems():
 
                 if k == 'md5':
                     data += u"MD5sum: {0}\n".format(hexlify(v))
@@ -180,23 +179,22 @@ def generate_packages_file(repo, env, arch):
             data += u"\n"
             yield data
 
-def dmove_package(pkg = None,  ver = None, repo = None, src = None, dst = None):
-    try:
-        with common.RepoLock(common.db_cacus.locks, repo, env):
-            result = common.db_repos[repo].update(
-                    {'Source': pkg, 'Version': ver, 'environment': src },
-                    {'$set': {'environment': dst}}, False, w = 1)
-            if result['n'] == 0:
-                log.error("Cannot find package '%s_%s' in repo '%s' at env %s", pkg, ver, repo, src)
-            elif result['nModified'] == 0:
-                log.warning("Package '%s_%s' is already in repo '%s' at env %s", pkg, ver, repo, src)
-            else:
-                log.info("Package '%s_%s' was dmoved in repo '%s' from %s to %s", pkg, ver, repo, src, dst)
 
-            update_repo_metadata(repo, src)
-            update_repo_metadata(repo, dst)
+def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
+    try:
+        with common.RepoLock(common.db_cacus.locks, repo, src):
+            with common.RepoLock(common.db_cacus.locks, repo, dst):
+                result = common.db_repos[repo].update(
+                    {'Source': pkg, 'Version': ver, 'environment': src},
+                    {'$set': {'environment': dst}}, False, w=1)
+                if result['n'] == 0:
+                    log.error("Cannot find package '%s_%s' in repo '%s' at env %s", pkg, ver, repo, src)
+                elif result['nModified'] == 0:
+                    log.warning("Package '%s_%s' is already in repo '%s' at env %s", pkg, ver, repo, src)
+                else:
+                    log.info("Package '%s_%s' was dmoved in repo '%s' from %s to %s", pkg, ver, repo, src, dst)
+
+                update_repo_metadata(repo, src)
+                update_repo_metadata(repo, dst)
     except common.RepoLockTimeout as e:
         log.error("Dmove failed: %s", e)
-
-
-
