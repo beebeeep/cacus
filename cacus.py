@@ -5,7 +5,6 @@ import argparse
 import logging
 import logging.handlers
 import sys
-import pprint
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 

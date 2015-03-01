@@ -153,6 +153,7 @@ class ReleaseHandler(CachedRequestHandler):
 
 
 class ApiDmoveHandler(RequestHandler):
+
     @asynchronous
     @gen.coroutine
     def post(self, repo=None):
@@ -176,6 +177,59 @@ class ApiDmoveHandler(RequestHandler):
             self.write({'success': False, 'msg': r['msg']})
 
 
+class ApiSearchHandler(RequestHandler):
+
+    @asynchronous
+    @gen.coroutine
+    def get(self, repo=None):
+        db = self.settings['db']
+        pkg = self.get_argument('pkg', '')
+        ver = self.get_argument('ver', '')
+        env = self.get_argument('env', '')
+        descr = self.get_argument('descr', '')
+        lang = self.get_argument('lang', '')
+
+        selector = {}
+        if pkg:
+            selector['Source'] = {'$regex': pkg}
+        if ver:
+            selector['Version'] = {'$regex': ver}
+        if env:
+            selector['environment'] = env
+        if descr:
+            if lang:
+                selector['$text'] = {'$search': descr, '$language': lang}
+            else:
+                selector['$text'] = {'$search': descr}
+        projection = {
+            '_id': 0,
+            'Source': 1,
+            'environment': 1,
+            'Version': 1,
+            'debs.maintainer': 1,
+            'debs.Architecture': 1,
+            'debs.Package': 1,
+            'debs.Description': 1
+        }
+
+        result = {}
+        pkgs = []
+        log.debug("Searching for packages in %s with selector %s", repo, selector)
+        cursor = db.repos[repo].find(selector, projection)
+        while (yield cursor.fetch_next):
+            pkg = cursor.next_object()
+            if pkg:
+                p = dict((k.lower(), v) for k, v in pkg.iteritems())
+                p['debs'] = [dict((k.lower(), v) for k, v in deb.iteritems()) for deb in pkg['debs']]
+                pkgs.append(p)
+        if not pkgs:
+            self.set_status(404)
+            result = {'success': False, 'result': []}
+        else:
+            result = {'success': True, 'result': pkgs}
+        self.write(result)
+
+
 def make_app():
     base = common.config['repo_daemon']['repo_base']
 
@@ -185,13 +239,15 @@ def make_app():
     sources_files_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
 
     api_dmove_re = base + r"/api/v1/dmove/(?P<repo>[-_.A-Za-z0-9]+)$"
+    api_search_re = base + r"/api/v1/search/(?P<repo>[-_.A-Za-z0-9]+)$"
 
     return Application([
         url(packages_re, PackagesHandler),
         url(release_re, ReleaseHandler),
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler),
-        url(api_dmove_re, ApiDmoveHandler)
+        url(api_dmove_re, ApiDmoveHandler),
+        url(api_search_re, ApiSearchHandler)
         ])
 
 

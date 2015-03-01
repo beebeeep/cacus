@@ -37,13 +37,10 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
 
         log.info("Uploading %s to repo '%s' environment '%s'", base_key, repo, env)
         storage_key = "/storage/" + loader.get_plugin('storage').put(base_key, file)
-        #storage_key = base_key
 
         meta['environment'] = env
         meta['Source'] = changes['source']
         meta['Version'] = changes['version']
-
-        key_name = common.sanitize_filename(filename)
 
         if file.endswith('.deb') or file.endswith('.udeb'):
             if 'debs' not in meta:
