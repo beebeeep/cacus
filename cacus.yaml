@@ -7,6 +7,7 @@ storage:
     base_url: "http://storage-int.mdst.yandex.net:1111/upload-repo/" 
     auth_header: {"Authorization": "Basic cmVwbzplYTdiNzIzMmE2MGE4YjNiMmFiMmRhNjBlZjEwMDUwMA=="}
     connect_timeout: 5
+    read_timeout: 120
 
 logging:
     level: DEBUG 

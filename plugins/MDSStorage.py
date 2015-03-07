@@ -18,7 +18,8 @@ class MDSStorage(plugins.IStoragePlugin):
     def configure(self, config):
         self.base_url = config['base_url']
         self.auth_header = config['auth_header']
-        self.timeout = config['connect_timeout']
+        self.c_timeout = config['connect_timeout']
+        self.r_timeout = config['read_timeout']
 
     def put(self, key, filename):
         with open(filename, 'rb') as f:
@@ -27,8 +28,8 @@ class MDSStorage(plugins.IStoragePlugin):
             for n_try in xrange(3):
                 f.seek(0)
                 try:
-                    response = requests.post(url, data=f, headers=self.auth_header, timeout=self.timeout)
-                    log.info("PUT %s %s %s", url, response.status_code, response.elapsed.total_seconds())
+                    response = requests.post(url, data=f, headers=self.auth_header, timeout=(self.c_timeout, self.r_timeout))
+                    log.info("POST %s %s %s", url, response.status_code, response.elapsed.total_seconds())
                     if response.ok:
                         response = ET.fromstring(response.content)
                         break

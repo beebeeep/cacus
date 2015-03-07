@@ -4,8 +4,7 @@
 import os
 import sys
 import logging
-import pprint
-from minidinstall import ChangeFile, DebianSigVerifier
+from minidinstall import ChangeFile
 from functools import partial
 
 import repo_manage
