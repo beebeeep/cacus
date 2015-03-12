@@ -21,7 +21,11 @@ def import_repo(path=None, repo='common', env='unstable'):
         pkg_files = []
         changes = ChangeFile.ChangeFile()
         changes.load_from_file(file)
-        log.info("Importing %s-%s to %s %s", changes['source'], changes['version'], repo, env)
+        try:
+            log.info("Importing %s-%s to %s %s", changes['source'], changes['version'], repo, env)
+        except KeyError as e:
+            log.error("Cannot find field %s in %s, skipping package", e[0], file)
+            break
         for f in (x[2] for x in changes.getFiles()):
             filename = ""
             if f.endswith('.deb') or f.endswith('.udeb'):
@@ -45,7 +49,10 @@ def import_repo(path=None, repo='common', env='unstable'):
             else:
                 pkg_files.append(filename)
         else:   # if we don't break'ed because of some error
-            repo_manage.upload_package(repo, env, pkg_files, changes, skipUpdateMeta=True)
+            try:
+                repo_manage.upload_package(repo, env, pkg_files, changes, skipUpdateMeta=True)
+            except repo_manage.UploadPackageError as e:
+                log.critical("Cannot upload package: %s", e)
     for arch in ('amd64', 'all', 'i386'):
         log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
         repo_manage.update_repo_metadata(repo, env, arch)

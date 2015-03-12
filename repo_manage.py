@@ -18,6 +18,10 @@ import common
 log = logging.getLogger('cacus.repo_manage')
 
 
+class UploadPackageError(Exception):
+    pass
+
+
 def upload_package(repo, env, files, changes, skipUpdateMeta=False):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
@@ -36,7 +40,11 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
             hashes = common.get_hashes(f)
 
         log.info("Uploading %s to repo '%s' environment '%s'", base_key, repo, env)
-        storage_key = "/storage/" + loader.get_plugin('storage').put(base_key, file)
+        storage_key = loader.get_plugin('storage').put(base_key, file)
+        if not storage_key:
+            log.critical("Error uploading %s, skipping whole package", file)
+            raise UploadPackageError("Cannot upload {0} to storage".format(file))
+        storage_key = "/storage/" + storage_key
 
         meta['environment'] = env
         meta['Source'] = changes['source']
@@ -54,7 +62,12 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
                 'md5': binary.Binary(hashes['md5']),
                 'storage_key': storage_key
                 }
-            deb = debfile.DebFile(file)
+            try:
+                deb = debfile.DebFile(file)
+            except debfile.DebError as e:
+                log.critical("Cannot load debfile %s: %s", file, e)
+                raise UploadPackageError("Cannot load debfile {0}: {1}".format(file, e))
+
             affected_arch.add(deb.debcontrol()['Architecture'])
             for k, v in deb.debcontrol().iteritems():
                 doc[k] = v
@@ -86,13 +99,13 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
         try:
             with common.RepoLock(common.db_cacus.locks, repo, env):
                 common.db_repos[repo].insert(meta)
-
                 if not skipUpdateMeta:
                     for arch in affected_arch:
                         log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
                         update_repo_metadata(repo, env, arch)
         except common.RepoLockTimeout as e:
             log.error("Error updating repo: %s", e)
+            raise UploadPackageError("Cannot lock repo: {0}".format(e))
     else:
         log.info("No changes made on repo %s/%s, skipping metadata update", repo, env)
 
