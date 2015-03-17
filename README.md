@@ -13,7 +13,11 @@ To start incoming dirs watcher, run
 python cacus.py --config /path/to/cacus.yaml --duploader-daemon
 ```
 
-Manual package upload:
+Start repository HTTP daemon:
 ```shell
-python cacus.py --config /path/to/cacus.yaml --upload --to yandex-precise --env unstable ~/path/where/all/*deb
+python cacus.py --config /path/to/cacus.yaml --repo-daemon
+```
+Import repository:
+```shell
+python cacus.py --config /path/to/cacus.yaml  --import-repo /path/to/repo/ --repo REPO --env ENV
 ```
