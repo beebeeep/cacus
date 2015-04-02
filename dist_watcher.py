@@ -17,14 +17,8 @@ log.addHandler(h)
 
 sign_ok_re = re.compile(r'Good signature on "\/repo\/(?P<repo>\w+)\/mini-dinstall\/incoming\/(?P<changes>(?P<pkg>[-.A-Za-z0-9]+)_(?P<ver>[-.A-Za-z0-9]+)_(?P<arch>amd64|all|i386)\.changes)"$')
 uploaded_re = re.compile(r'Successfully installed (?P<pkg>[-_A-Za-z0-9]+) (?P<ver>.+?) to unstable')
-changes = set()
-changes_lock = threading.Lock()
-
-def process_sign(match):
-    repo = match.group('repo')
-    file = match.group('file')
-    with changes_lock:
-        changes.add( (repo, file) )
+#robot-dmover : common yandex-music-utils 15.13.0.7.de20eaa240e8 testing -> stable
+dmoved_re = re.compile(r'(?P<who>.+?)\s+:\s+(?P<repo>.+?)\s+(?P<pkg>[-_A-Za-z0-9]+)\s+(?P<ver>.+?)\s+(?P<src>\w+)\s+->\s+(?P<dst>\w+)$')
 
 class EventHandler(pyinotify.ProcessEvent):
     def __init__(self, filename):
@@ -46,8 +40,6 @@ class EventHandler(pyinotify.ProcessEvent):
         # TODO handle this
 
     def process_IN_MODIFY(self, event):
-        log.info("MODIFY %s", event.pathname)
-
         fsize = os.stat(self._filename).st_size
         pos = self._file.tell()
         if fsize < pos:
@@ -63,13 +55,41 @@ class EventHandler(pyinotify.ProcessEvent):
             else:
                 break
 
+class DmovedHandler(EventHandler):
+    def _notifyCacus(self, repo, pkg, ver, src, dst):
+        log.info("%s_%s was dmoved in %s from %s to %s", pkg, ver, repo, src, dst)
+        try:
+            url = "http://cacus.haze.yandex.net/debian/api/v1/dmove/{}".format(repo)
+            response = requests.post(
+                    url,
+                    data={'pkg': pkg, 'ver': ver, 'from': src, 'to': dst},
+                    timeout=5)
+            log.info("POST %s %s %s", url, response.status_code, response.elapsed.total_seconds())
+        except Exception as e:
+            log.error("Error requesting %s: %s", url, e)
+
+    def processLine(self, line):
+        match = dmoved_re.search(line)
+        if match:
+            repo = match.group('repo')
+            pkg = match.group('pkg')
+            ver = match.group('ver')
+            src = match.group('src')
+            dst = match.group('dst')
+            self._notifyCacus(repo, pkg, ver, src, dst)
+
 class DinstalledHandler(EventHandler):
     def __init__(self, *args, **kwargs):
         self.changesFiles = {}
         super(DinstalledHandler, self).__init__(*args, **kwargs)
 
     def _notifyCacus(self, repo, file):
-        log.info("BOOM %s %s", repo, file)
+        try:
+            url = "http://cacus.haze.yandex.net/debian/api/v1/dist-push/{}?file={}".format(repo, file)
+            response = requests.post(url, timeout=5)
+            log.info("POST %s %s %s", url, response.status_code, response.elapsed.total_seconds())
+        except Exception as e:
+            log.error("Error requesting %s: %s", url, e)
 
     def processLine(self, line):
         match = sign_ok_re.search(line)
@@ -94,7 +114,8 @@ class DinstalledHandler(EventHandler):
 
 filename = '/tmp/testlog'
 wm = pyinotify.WatchManager()
-notifier = pyinotify.ThreadedNotifier(wm, DinstalledHandler(filename))
+#notifier = pyinotify.ThreadedNotifier(wm, DinstalledHandler(filename))
+notifier = pyinotify.ThreadedNotifier(wm, DmovedHandler(filename))
 notifier.start()
 wdd = wm.add_watch(filename, pyinotify.IN_MODIFY , rec=True)
 

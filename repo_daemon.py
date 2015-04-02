@@ -157,7 +157,6 @@ class ApiDmoveHandler(RequestHandler):
     @asynchronous
     @gen.coroutine
     def post(self, repo=None):
-        repo = self.get_argument('repo')
         pkg = self.get_argument('pkg')
         ver = self.get_argument('ver')
         src = self.get_argument('from')
