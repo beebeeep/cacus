@@ -1,7 +1,3 @@
-#storage:
-#    type: FileStorage
-#    path: /home/dmiga/test-repo/pool
-
 storage:
     type: MDSStorage
     base_url: "http://storage-int.mdst.yandex.net:1111/upload-repo/" 

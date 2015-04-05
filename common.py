@@ -7,6 +7,7 @@ import hashlib
 import logging
 import sys
 import time
+import requests
 from pyme import core
 
 
@@ -67,6 +68,25 @@ def desanitize_filename(file):
     return file.replace("___", ".")
 
 
+def download_file(url, filename):
+    try:
+        r = requests.get(url, stream=True)
+        if r.status_code == 200:
+            with open(filename, 'w') as f:
+                for chunk in r.iter_content(64*1024):
+                    f.write(chunk)
+            result = {'result': globals()['status'].OK, 'msg': 'OK'}
+        else:
+            r.close()
+            result = {'result': globals()['status'].NOT_FOUND, 'msg': 'GET {}: 404'.format(url)}
+        r.close()
+    except (requests.ConnectionError, requests.HTTPError) as e:
+        result = {'result': globals()['status'].ERROR, 'msg': str(e)}
+    except requests.Timeout as e:
+        result = {'result': globals()['status'].TIMEOUT, 'msg': str(e)}
+    return result
+
+
 class RepoLockTimeout(Exception):
     pass
 
@@ -114,7 +134,6 @@ class RepoLock:
             pass
         except:
             self.log.error("Error while unlocking %s/%s: %s", self.repo, self.env, sys.exc_info())
-
 
 config = None
 db_repos = None

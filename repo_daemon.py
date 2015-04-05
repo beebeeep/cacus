@@ -161,7 +161,8 @@ class ApiDmoveHandler(RequestHandler):
         ver = self.get_argument('ver')
         src = self.get_argument('from')
         dst = self.get_argument('to')
-        r = yield self.settings['workers'].submit(repo_manage.dmove_package, repo=repo, pkg=pkg, ver=ver, src=src, dst=dst)
+        r = yield self.settings['workers'].submit(repo_manage.dmove_package,
+                                                  repo=repo, pkg=pkg, ver=ver, src=src, dst=dst)
         if r['result'] == common.status.OK:
             self.write({'success': True, 'msg': r['msg']})
         elif r['result'] == common.status.NO_CHANGES:
@@ -173,6 +174,24 @@ class ApiDmoveHandler(RequestHandler):
             # timeout on dmove can only if we cannot lock the repo,
             # i.e. there is some other operation processing current repo
             self.set_status(409)
+            self.write({'success': False, 'msg': r['msg']})
+
+
+class ApiDistPushHandler(RequestHandler):
+
+    @asynchronous
+    @gen.coroutine
+    def post(self, repo=None):
+        changes_file = self.get_argument('file')
+
+        r = yield self.settings['workers'].submit(repo_manage.dist_push, repo=repo, changes=changes_file)
+        if r['result'] == common.status.OK:
+            self.write({'success': True, 'msg': r['msg']})
+        elif r['result'] == common.status.NOT_FOUND:
+            self.set_status(404)
+            self.write({'success': False, 'msg': r['msg']})
+        elif r['result'] == common.status.ERROR:
+            self.set_status(503)
             self.write({'success': False, 'msg': r['msg']})
 
 
@@ -239,6 +258,7 @@ def make_app():
 
     api_dmove_re = base + r"/api/v1/dmove/(?P<repo>[-_.A-Za-z0-9]+)$"
     api_search_re = base + r"/api/v1/search/(?P<repo>[-_.A-Za-z0-9]+)$"
+    api_dist_push_re = base + r"/api/v1/dist-push/(?P<repo>[-_.A-Za-z0-9]+)$"
 
     return Application([
         url(packages_re, PackagesHandler),
@@ -246,7 +266,8 @@ def make_app():
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler),
         url(api_dmove_re, ApiDmoveHandler),
-        url(api_search_re, ApiSearchHandler)
+        url(api_search_re, ApiSearchHandler),
+        url(api_dist_push_re, ApiDistPushHandler)
         ])
 
 
