@@ -5,7 +5,6 @@ import os
 import stat
 import hashlib
 import logging
-import requests
 from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
@@ -15,6 +14,7 @@ from bson import binary
 
 import loader
 import common
+import dist_importer
 
 log = logging.getLogger('cacus.repo_manage')
 
@@ -227,6 +227,7 @@ def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
         msg = "Dmove failed: {}".format(e)
         return {'result': common.status.TIMEOUT, 'msg': msg}
 
+
 def dist_push(repo=None, changes=None):
     log.info("Got push for repo %s file %s", repo, changes)
     try:
@@ -236,15 +237,7 @@ def dist_push(repo=None, changes=None):
         return {'result': common.status.NOT_FOUND, 'msg': "No such repo"}
 
     filename = os.path.join(base_dir, changes.split('/')[-1])
-    url = "http://dist.yandex.ru/repo/{}/mini-dinstall/incoming/{}".format(repo, changes)
-    r = requests.get(url, stream=True)
-    if r.status_code == 200:
-        with open(filename, 'w') as f:
-            for chunk in r.iter_content(64*1024):
-                f.write(chunk)
-    else:
-        return {'result': common.status.NOT_FOUND, 'msg': '{} not found on dist.yandex.ru'.format(changes)}
-    log.info("GET %s %s %s", url, r.status_code, r.elapsed.total_seconds())
-    r.close()
-
-    return {'result': common.status.OK, 'msg': 'OK'}
+    url = "http://dist.yandex.ru/{}/unstable/{}".format(repo, changes)
+    result = common.download_file(url, filename)
+    if result['result'] == common.status.OK:
+        dist_importer.import_package(filename, repo, 'unstable')

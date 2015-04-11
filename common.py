@@ -69,13 +69,17 @@ def desanitize_filename(file):
 
 
 def download_file(url, filename):
+    log = logging.getLogger("cacus.downloader")
     try:
+        total_bytes = 0
         r = requests.get(url, stream=True)
         if r.status_code == 200:
             with open(filename, 'w') as f:
                 for chunk in r.iter_content(64*1024):
+                    total_bytes += len(chunk)
                     f.write(chunk)
             result = {'result': globals()['status'].OK, 'msg': 'OK'}
+            log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
         else:
             r.close()
             result = {'result': globals()['status'].NOT_FOUND, 'msg': 'GET {}: 404'.format(url)}
@@ -85,7 +89,6 @@ def download_file(url, filename):
     except requests.Timeout as e:
         result = {'result': globals()['status'].TIMEOUT, 'msg': str(e)}
     return result
-
 
 class RepoLockTimeout(Exception):
     pass

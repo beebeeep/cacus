@@ -15,7 +15,7 @@ h = logging.StreamHandler()
 h.setFormatter(logFormatter)
 log.addHandler(h)
 
-sign_ok_re = re.compile(r'Good signature on "\/repo\/(?P<repo>\w+)\/mini-dinstall\/incoming\/(?P<changes>(?P<pkg>[-.A-Za-z0-9]+)_(?P<ver>[-.A-Za-z0-9]+)_(?P<arch>amd64|all|i386)\.changes)"$')
+sign_ok_re = re.compile(r'Good signature on "\/repo\/(?P<repo>\w+)\/mini-dinstall\/incoming\/(?P<changes>(?P<pkg>[-+.A-Za-z0-9]+)_(?P<ver>[-.A-Za-z0-9]+)_(?P<arch>amd64|all|i386)\.changes)"$')
 uploaded_re = re.compile(r'Successfully installed (?P<pkg>[-_A-Za-z0-9]+) (?P<ver>.+?) to unstable')
 #robot-dmover : common yandex-music-utils 15.13.0.7.de20eaa240e8 testing -> stable
 dmoved_re = re.compile(r'(?P<who>.+?)\s+:\s+(?P<repo>.+?)\s+(?P<pkg>[-_A-Za-z0-9]+)\s+(?P<ver>.+?)\s+(?P<src>\w+)\s+->\s+(?P<dst>\w+)$')
@@ -50,7 +50,7 @@ class EventHandler(pyinotify.ProcessEvent):
         while True:
             line = self._file.readline()
             if line:
-                log.debug("Read from %s: '%s'", self._filename, line.rstrip())
+                #log.debug("Read from %s: '%s'", self._filename, line.rstrip())
                 self.processLine(line)
             else:
                 break
@@ -102,6 +102,7 @@ class DinstalledHandler(EventHandler):
             log.debug("Found ok signature for %s: package %s_%s", changes, pkg, ver)
         else:
             match = uploaded_re.search(line)
+            # notify cacus if package was uploaded to unstable
             if match:
                 pkg = match.group('pkg')
                 ver = match.group('ver')
@@ -112,16 +113,26 @@ class DinstalledHandler(EventHandler):
                 except KeyError:
                     log.error("Got %s_%s uploaded to unstable, but cannot find information about it", pkg, ver)
 
-filename = '/tmp/testlog'
+
+notifiers = []
+for filename in ['/tmp/testlog', '/var/log/mini-dinstall-yandex-precise.log', '/var/log/mini-dinstall-common.log']:
+    wm = pyinotify.WatchManager()
+    n = pyinotify.ThreadedNotifier(wm, DinstalledHandler(filename))
+    wdd = wm.add_watch(filename, pyinotify.IN_MODIFY , rec=True)
+    n.start()
+    notifiers.append( (n,wm,wdd) )
+
+filename = '/var/log/dmove.log'
 wm = pyinotify.WatchManager()
-#notifier = pyinotify.ThreadedNotifier(wm, DinstalledHandler(filename))
-notifier = pyinotify.ThreadedNotifier(wm, DmovedHandler(filename))
-notifier.start()
+n = pyinotify.ThreadedNotifier(wm, DmovedHandler(filename))
 wdd = wm.add_watch(filename, pyinotify.IN_MODIFY , rec=True)
+n.start()
+notifiers.append( (n,wm,wdd) )
 
 while True:
     try:
         signal.pause()
     except KeyboardInterrupt:
-        notifier.stop()
+        for n in notifiers:
+            n[0].stop()
         break

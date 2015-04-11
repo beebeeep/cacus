@@ -184,15 +184,13 @@ class ApiDistPushHandler(RequestHandler):
     def post(self, repo=None):
         changes_file = self.get_argument('file')
 
-        r = yield self.settings['workers'].submit(repo_manage.dist_push, repo=repo, changes=changes_file)
-        if r['result'] == common.status.OK:
-            self.write({'success': True, 'msg': r['msg']})
-        elif r['result'] == common.status.NOT_FOUND:
+        if repo in common.config['duploader_daemon']['repos']:
+            self.write({'success': True, 'msg': 'Submitted package import job'})
+        else:
             self.set_status(404)
-            self.write({'success': False, 'msg': r['msg']})
-        elif r['result'] == common.status.ERROR:
-            self.set_status(503)
-            self.write({'success': False, 'msg': r['msg']})
+            self.write({'success': False, 'msg': "Repo {} is not configured".format(repo)})
+
+        self.settings['workers'].submit(repo_manage.dist_push, repo=repo, changes=changes_file)
 
 
 class ApiSearchHandler(RequestHandler):

@@ -4,6 +4,7 @@ storage:
     auth_header: {"Authorization": "Basic cmVwbzplYTdiNzIzMmE2MGE4YjNiMmFiMmRhNjBlZjEwMDUwMA=="}
     connect_timeout: 5
     read_timeout: 120
+    temp_dir: /home/dmiga/test-repo/temp
 
 logging:
     level: DEBUG 
