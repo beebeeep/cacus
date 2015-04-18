@@ -73,4 +73,4 @@ if __name__ == '__main__':
         repo_manage.dmove_package(pkg=args.dmove[0], ver=args.dmove[1],
                                   repo=args.repo, src=args.__getattribute__('from'), dst=args.to)
     elif args.import_repo:
-        dist_importer.import_repo(url=args.import_repo, repo=args.repo, env=args.env)
+        dist_importer.import_repo(repo_url=args.import_repo, repo=args.repo, env=args.env)

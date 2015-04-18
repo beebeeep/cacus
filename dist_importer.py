@@ -43,10 +43,17 @@ def import_package(changefile=None, repo=None, env='unstable'):
     changes = ChangeFile.ChangeFile()
     changes.load_from_file(changefile)
     try:
-        log.info("Importing %s-%s to %s %s", changes['source'], changes['version'], repo, env)
+        p = common.db_repos[repo].find_one({'Source': changes['source'], 'Version': changes['version']})
+        if p:
+            log.warning("%s_%s is already uploaded to repo '%s', environment '%s'",
+                        changes['source'], changes['version'], repo, p['environment'])
+            return None
+        else:
+            log.info("Importing %s_%s to %s/%s", changes['source'], changes['version'], repo, env)
     except KeyError as e:
         log.error("Cannot find field %s in %s, skipping package", e[0], file)
         raise ImportException("Cannot find field %s in %s, skipping package", e[0].format(file))
+
     for f in (x[2] for x in changes.getFiles()):
         if f.endswith('.deb') or f.endswith('.udeb'):
             if f.find('_amd64') >= 0:
@@ -63,7 +70,7 @@ def import_package(changefile=None, repo=None, env='unstable'):
 
         if not _checkFile(url):
             log.error("%s (%s): file not found", url, f)
-            raise ImportException("%s not found".format(url))
+            raise ImportException("{} not found".format(url))
         else:
             pkg_files.append(url)
 
@@ -72,6 +79,7 @@ def import_package(changefile=None, repo=None, env='unstable'):
         file = os.path.join(common.config['storage']['temp_dir'], url.split('/')[-1])
         result = common.download_file(url, file)
         if result['result'] != common.status.OK:
+            [os.unlink(x) for x in downloaded]
             raise ImportException("Cannot download {}: {}".format(url, result['msg']))
         downloaded.append(file)
 
@@ -79,32 +87,35 @@ def import_package(changefile=None, repo=None, env='unstable'):
         repo_manage.upload_package(repo, env, downloaded, changes, skipUpdateMeta=True)
     except repo_manage.UploadPackageError as e:
         log.error("Cannot upload package: %s", e)
+        [os.unlink(x) for x in downloaded]
         raise ImportException("Cannot upload package: {}".format(e))
 
-    #cleanup
+    # cleanup
     for file in downloaded:
         os.unlink(file)
 
 
-def import_repo(url=None, repo='common', env='unstable'):
-    parser = RepoDirIndexParser(url)
-    index = requests.get(url, timeout=120)
-    parser.feed(index.text)
+def import_repo(repo_url=None, repo='common', env='unstable'):
+    parser = RepoDirIndexParser(repo_url)
+    index = requests.get(repo_url, stream=True, timeout=120)
+    for chunk in index.iter_content(64*1024):
+        parser.feed(chunk)
     changes_files = parser.changes
+    log.info("Found %s packages to import", len(changes_files))
     for url in changes_files:
-        try:
             file = os.path.join(common.config['storage']['temp_dir'], url.split('/')[-1])
             result = common.download_file(url, file)
             if result['result'] == common.status.OK:
-                import_package(file, repo, env)
+                try:
+                    import_package(file, repo, env)
+                except ImportException as e:
+                    log.error("Cannot import %s: %s", file, e)
+                os.unlink(file)
             else:
                 log.error("Cannot download %s", file)
-            os.unlink(file)
-        except ImportException as e:
-            log.error("Cannot import %s: %s", file, e)
 
     for arch in ('amd64', 'all', 'i386'):
         log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
         repo_manage.update_repo_metadata(repo, env, arch)
 
-    log.info("Import from %s completed, uploaded %s packages to %s %s", url, len(changes_files), repo, env)
+    log.info("Import from %s completed, uploaded %s packages to %s %s", repo_url, len(changes_files), repo, env)
