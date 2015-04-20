@@ -20,6 +20,24 @@ class MDSStorage(plugins.IStoragePlugin):
         self.auth_header = config['auth_header']
         self.c_timeout = config['connect_timeout']
         self.r_timeout = config['read_timeout']
+        self.mdst_groups = [1338, 1959, 1061, 1212, 1633, 2796, 1054, 1079]
+
+    def _find_key(self, key):
+        """Restore an actual storage key from MDS
+
+        If MDS returns 403 code for upload-ns handle, that means that we're trying to update an existing key,
+        that is prohibited in common MDS namespaces.
+
+        Fastest way to recover an actual key is to just look over all known groups with HEAD requests.
+        DO NOT USE at production lol
+        """
+        for group in self.mdst_groups:
+            storage_key = "{}/{}".format(group, key)
+            url = "http://storage-int.mdst.yandex.net/get-repo/{}".format(storage_key)
+            response = requests.head(url, headers=self.auth_header, timeout=(self.c_timeout, self.r_timeout))
+            if response.ok:
+                return storage_key
+        return None
 
     def put(self, key, filename):
         with open(filename, 'rb') as f:
@@ -33,6 +51,10 @@ class MDSStorage(plugins.IStoragePlugin):
                     if response.ok:
                         response = ET.fromstring(response.content)
                         break
+                    if response.status_code == 403:
+                        k = self._find_key(key)
+                        log.warning("GOLDEN CRUTCH DETECTED: restored storage key '%s'", k)
+                        return k
                 except requests.exceptions.ConnectionError as e:
                     log.error("Error requesting %s: %s", url, e)
                 except requests.exceptions.HTTPError as e:
