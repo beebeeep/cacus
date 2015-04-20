@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import logging
-import logging.handlers
 import sys
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
@@ -36,24 +34,7 @@ if __name__ == '__main__':
     common.db_repos = common.connect_mongo(common.config['metadb'])['repos']
     common.db_cacus = common.connect_mongo(common.config['metadb'])['cacus']
 
-    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
-    log = logging.getLogger('cacus')
-    log.setLevel(logging.DEBUG)
-
-    handlers = []
-    dst = common.config['logging']['destinations']
-    if dst['console']:
-        h = logging.StreamHandler()
-        h.setFormatter(logFormatter)
-        log.addHandler(h)
-    if dst['file']:
-        h = logging.handlers.WatchedFileHandler(dst['file'])
-        h.setFormatter(logFormatter)
-        log.addHandler(h)
-    if dst['syslog']:
-        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
-        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
-        log.addHandler(h)
+    log = common.setup_logger('cacus')
 
     import repo_manage
     import repo_daemon

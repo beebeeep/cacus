@@ -4,10 +4,11 @@
 import yaml
 import pymongo
 import hashlib
-import logging
 import sys
 import time
 import requests
+import logging
+import logging.handlers
 from pyme import core
 
 
@@ -18,6 +19,26 @@ class Enum(set):
             return name
         raise AttributeError
 
+def setup_logger(name):
+    log = logging.getLogger(name)
+    log.setLevel(logging.DEBUG)
+    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
+
+    dst = globals()['config']['logging']['destinations']
+    if dst['console']:
+        h = logging.StreamHandler()
+        h.setFormatter(logFormatter)
+        log.addHandler(h)
+    if dst['file']:
+        h = logging.handlers.WatchedFileHandler(dst['file'])
+        h.setFormatter(logFormatter)
+        log.addHandler(h)
+    if dst['syslog']:
+        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
+        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
+        log.addHandler(h)
+
+    return log
 
 def connect_mongo(cfg):
     if cfg['type'] == 'single_mongo':

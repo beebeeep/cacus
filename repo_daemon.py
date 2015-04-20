@@ -15,8 +15,9 @@ import time
 import common
 import repo_manage
 
-log = logging.getLogger('tornado')
-log.setLevel(logging.DEBUG)
+access_log = common.setup_logger('tornado.access')
+app_log = common.setup_logger('tornado.application')
+gen_log = common.setup_logger('tornado.general')
 
 
 class CachedRequestHandler(RequestHandler):
@@ -230,7 +231,7 @@ class ApiSearchHandler(RequestHandler):
 
         result = {}
         pkgs = []
-        log.debug("Searching for packages in %s with selector %s", repo, selector)
+        app_log.debug("Searching for packages in %s with selector %s", repo, selector)
         cursor = db.repos[repo].find(selector, projection)
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
