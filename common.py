@@ -9,7 +9,9 @@ import time
 import requests
 import logging
 import logging.handlers
+import StringIO
 from pyme import core
+from pyme.constants.sig import mode
 
 
 class Enum(set):
@@ -18,6 +20,7 @@ class Enum(set):
         if name in self:
             return name
         raise AttributeError
+
 
 def setup_logger(name):
     log = logging.getLogger(name)
@@ -39,6 +42,7 @@ def setup_logger(name):
         log.addHandler(h)
 
     return log
+
 
 def connect_mongo(cfg):
     if cfg['type'] == 'single_mongo':
@@ -110,6 +114,33 @@ def download_file(url, filename):
     except requests.Timeout as e:
         result = {'result': globals()['status'].TIMEOUT, 'msg': str(e)}
     return result
+
+
+def gpg_sign(data, signer_email):
+    sig = core.Data()
+    plain = core.Data(data)
+    ctx = core.Context()
+    ctx.set_armor(1)
+    signer = ctx.op_keylist_all(signer_email, 1).next()
+    ctx.signers_add(signer)
+    ctx.op_sign(plain, sig, mode.DETACH)
+    sig.seek(0, 0)
+    return sig.read()
+
+
+class myStringIO(StringIO.StringIO):
+
+    def __init__(self, *args, **kwargs):
+        StringIO.StringIO.__init__(self, *args, **kwargs)
+
+    def __enter__(self):
+        self.seek(0)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # close() on StringIO will free memory buffer, so 'with' statement is destructive
+        self.close()
+
 
 class RepoLockTimeout(Exception):
     pass

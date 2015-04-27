@@ -8,8 +8,6 @@ import logging
 from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
-from pyme import core
-from pyme.constants.sig import mode
 from bson import binary
 
 import loader
@@ -20,6 +18,10 @@ log = logging.getLogger('cacus.repo_manage')
 
 
 class UploadPackageError(Exception):
+    pass
+
+
+class UpdateRepoMetadataError(Exception):
     pass
 
 
@@ -41,7 +43,7 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
             hashes = common.get_hashes(f)
 
         log.info("Uploading %s to repo '%s' environment '%s'", base_key, repo, env)
-        storage_key = loader.get_plugin('storage').put(base_key, file)
+        storage_key = loader.get_plugin('storage').put(base_key, filename=file)
         if not storage_key:
             log.critical("Error uploading %s, skipping whole package", file)
             raise UploadPackageError("Cannot upload {0} to storage".format(file))
@@ -104,7 +106,7 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
                     for arch in affected_arch:
                         log.info("Updating '%s/%s/%s' repo metadata", repo, env, arch)
                         update_repo_metadata(repo, env, arch)
-        except common.RepoLockTimeout as e:
+        except (common.RepoLockTimeout, UpdateRepoMetadataError) as e:
             log.error("Error updating repo: %s", e)
             raise UploadPackageError("Cannot lock repo: {0}".format(e))
     else:
@@ -125,13 +127,31 @@ def update_repo_metadata(repo, env, arch):
     md5 = hashlib.md5()
     sha1 = hashlib.sha1()
     sha256 = hashlib.sha256()
-    size = 0
-    for data in generate_packages_file(repo, env, arch):
-        data = data.encode('utf-8')
-        md5.update(data)
-        sha1.update(data)
-        sha256.update(data)
-        size += len(data)
+    packages = generate_packages_file(repo, env, arch)
+    size = packages.tell()
+    md5.update(packages.getvalue())
+    sha1.update(packages.getvalue())
+    sha256.update(packages.getvalue())
+
+    old_repo = common.db_cacus[repo].find_one({'environment': env, 'architecture': arch}, {'packages_file': 1})
+    if old_repo and 'packages_file' in old_repo and old_repo['packages_file'].find(md5.hexdigest()) >= 0:
+        log.warn("Packages file for %s/%s/%s not changed, skipping update", repo, env, arch)
+        return
+
+    base_key = "{}/{}/{}/Packages_{}".format(repo, env, arch, md5.hexdigest())
+    storage_key = loader.get_plugin('storage').put(base_key, file=packages)
+    if not storage_key:
+        log.critical("Error uploading new Packages", file)
+        raise UpdateRepoMetadataError("Cannot upload Packages file to storage")
+
+    """
+    packages.seek(0)
+    for chunk in iter(lambda: packages.read(4096), ''):
+        md5.update(chunk)
+        sha1.update(chunk)
+        sha256.update(chunk)
+    #    size += len(chunk)
+    """
 
     # We don't need to generate Release file on-the-fly: it's small enough to put it directly to metabase
     release = u""
@@ -147,48 +167,49 @@ def update_repo_metadata(repo, env, arch):
     release += u"SHA1:\n {0}\t{1} Packages\n".format(sha1.hexdigest(), size)
     release += u"SHA256:\n {0}\t{1} Packages\n".format(sha256.hexdigest(), size)
 
-    sig = core.Data()
-    plain = core.Data(release.encode('utf-8'))
-    ctx = core.Context()
-    ctx.set_armor(1)
-    signer = ctx.op_keylist_all(common.config['gpg']['signer'], 1).next()
-    ctx.signers_add(signer)
-    ctx.op_sign(plain, sig, mode.DETACH)
-    sig.seek(0, 0)
-    release_gpg = sig.read()
+    release_gpg = common.gpg_sign(release.encode('utf-8'), common.config['gpg']['signer'])
 
-    common.db_cacus[repo].update({'environment': env, 'architecture': arch}, {'$set': {
-        'lastupdated': now,
-        'md5': binary.Binary(md5.digest()),
-        'sha1': binary.Binary(sha1.digest()),
-        'sha256': binary.Binary(sha256.digest()),
-        'size': size,
-        'release_file': release,
-        'release_gpg': release_gpg
-        }}, True)
+    old_repo = common.db_cacus[repo].find_and_modify(
+        query={'environment': env, 'architecture': arch},
+        update={'$set': {
+            'lastupdated': now,
+            'md5': binary.Binary(md5.digest()),
+            'sha1': binary.Binary(sha1.digest()),
+            'sha256': binary.Binary(sha256.digest()),
+            'size': size,
+            'release_file': release,
+            'release_gpg': release_gpg,
+            'packages_file': storage_key
+        }},
+        new=False,
+        upsert=True)
+    if 'packages_file' in old_repo:
+        old_key = old_repo['packages_file']
+        log.debug("Removing old Packages file %s", old_key)
+        loader.get_plugin('storage').delete(old_key)
 
 
 def generate_packages_file(repo, env, arch):
+    data = common.myStringIO()
     repo = common.db_repos[repo].find({'environment': env, 'debs.Architecture': arch})
     for pkg in repo:
         for deb in pkg['debs']:
-            data = u""
             for k, v in deb.iteritems():
-
                 if k == 'md5':
-                    data += u"MD5sum: {0}\n".format(hexlify(v))
+                    string = "MD5sum: {0}\n".format(hexlify(v))
                 elif k == 'sha1':
-                    data += u"SHA1: {0}\n".format(hexlify(v))
+                    string = "SHA1: {0}\n".format(hexlify(v))
                 elif k == 'sha256':
-                    data += u"SHA256: {0}\n".format(hexlify(v))
+                    string = "SHA256: {0}\n".format(hexlify(v))
                 elif k == 'sha512':
-                    data += u"SHA512: {0}\n".format(hexlify(v))
+                    string = "SHA512: {0}\n".format(hexlify(v))
                 elif k == 'storage_key':
-                    data += u"Filename: {0}\n".format(v)
+                    string = "Filename: {0}\n".format(hexlify(v))
                 else:
-                    data += u"{0}: {1}\n".format(k.capitalize(), v)
-            data += u"\n"
-            yield data
+                    string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
+                data.write(string)
+            data.write("\n")
+    return data
 
 
 def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
@@ -223,7 +244,7 @@ def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
                     log.info("Updating '%s/%s/%s' repo metadata", repo, dst, arch)
                     update_repo_metadata(repo, dst, arch)
                 return {'result': common.status.OK, 'msg': msg}
-    except common.RepoLockTimeout as e:
+    except (common.RepoLockTimeout, UpdateRepoMetadataError) as e:
         msg = "Dmove failed: {}".format(e)
         return {'result': common.status.TIMEOUT, 'msg': msg}
 

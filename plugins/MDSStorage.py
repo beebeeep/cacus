@@ -16,7 +16,8 @@ log = logging.getLogger('cacus.mds_storage')
 class MDSStorage(plugins.IStoragePlugin):
 
     def configure(self, config):
-        self.base_url = config['base_url']
+        self.read_url = config['read_url']
+        self.write_url = config['write_url']
         self.auth_header = config['auth_header']
         self.c_timeout = config['connect_timeout']
         self.r_timeout = config['read_timeout']
@@ -33,15 +34,30 @@ class MDSStorage(plugins.IStoragePlugin):
         """
         for group in self.mdst_groups:
             storage_key = "{}/{}".format(group, key)
-            url = "http://storage-int.mdst.yandex.net/get-repo/{}".format(storage_key)
+            url = "{}/get-repo/{}".format(self.read_url, storage_key)
             response = requests.head(url, headers=self.auth_header, timeout=(self.c_timeout, self.r_timeout))
             if response.ok:
                 return storage_key
         return None
 
-    def put(self, key, filename):
-        with open(filename, 'rb') as f:
-            url = "{0}{1}".format(self.base_url, key)
+    def delete(self, key):
+        url = "{}/delete-repo/{}".format(self.write_url, key)
+        try:
+            response = requests.post(url, headers=self.auth_header, timeout=(self.c_timeout, self.r_timeout))
+            log.info("POST %s %s %s", url, response.status_code, response.elapsed.total_seconds())
+        except requests.exceptions.ConnectionError as e:
+            log.error("Error requesting %s: %s", url, e)
+        except requests.exceptions.HTTPError as e:
+            log.error("Error requesting %s: %s", url, e)
+        except requests.exceptions.Timeout as e:
+            log.error("Timeout requesting %s: %s", url, e)
+
+    def put(self, key, filename=None, file=None):
+        if filename:
+            file = open(filename, 'rb')
+
+        with file as f:
+            url = "{0}/upload-repo/{1}".format(self.write_url, key)
 
             for n_try in xrange(3):
                 f.seek(0)

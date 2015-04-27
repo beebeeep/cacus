@@ -11,6 +11,8 @@ import motor
 from binascii import hexlify
 import email.utils
 import time
+import cStringIO
+import StringIO
 
 import common
 import repo_manage
@@ -66,20 +68,28 @@ class PackagesHandler(CachedRequestHandler):
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             for deb in pkg['debs']:
+                out = cStringIO.StringIO()
                 for k, v in deb.iteritems():
                     if k == 'md5':
-                        self.write(u"MD5sum: {0}\n".format(hexlify(v)))
+                        #out.write("MD5sum: {0}\n".format(hexlify(v)))
+                        out.write(''.join(("MD5sum: ", hexlify(v), "\n")))
                     elif k == 'sha1':
-                        self.write(u"SHA1: {0}\n".format(hexlify(v)))
+                        #out.write("SHA1: {0}\n".format(hexlify(v)))
+                        out.write(''.join(("SHA1: ", hexlify(v), "\n")))
                     elif k == 'sha256':
-                        self.write(u"SHA256: {0}\n".format(hexlify(v)))
+                        #out.write("SHA256: {0}\n".format(hexlify(v)))
+                        out.write(''.join(("SHA256: ", hexlify(v), "\n")))
                     elif k == 'sha512':
-                        self.write(u"SHA512: {0}\n".format(hexlify(v)))
+                        #out.write("SHA512: {0}\n".format(hexlify(v)))
+                        out.write(''.join(("SHA512: ", hexlify(v), "\n")))
                     elif k == 'storage_key':
-                        self.write(u"Filename: {0}\n".format(v))
+                        #out.write("Filename: {0}\n".format(v))
+                        out.write(''.join(("Filename: ", hexlify(v), "\n")))
                     else:
-                        self.write(u"{0}: {1}\n".format(k.capitalize(), v))
-                self.write(u"\n")
+                        #out.write("{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8')))
+                        out.write(''.join((k.capitalize().encode('utf-8'), ': ', unicode(v).encode('utf-8'), "\n")))
+                out.write("\n")
+                self.write(out.getvalue())
 
 
 class SourcesHandler(CachedRequestHandler):

@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--from', choices=env_choices, help='From env')
     parser.add_argument('--to', choices=env_choices, help='To env')
     parser.add_argument('--repo', type=str, help='Repository')
+    parser.add_argument('--arch', type=str, help='Architecture')
     parser.add_argument('--env', choices=env_choices, help='Environment')
     parser.add_argument('pkgs', type=str, nargs='*')
     args = parser.parse_args()
@@ -45,7 +46,7 @@ if __name__ == '__main__':
         print "This option is broken for current moment"
         sys.exit(1)
     elif args.update_repo:
-        repo_manage.update_repo_metadata(args.update_repo, args.env)
+        repo_manage.update_repo_metadata(args.update_repo, args.env, args.arch)
     elif args.duploader_daemon:
         duploader.start_duploader()
     elif args.repo_daemon:
