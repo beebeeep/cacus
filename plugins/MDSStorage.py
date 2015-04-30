@@ -77,6 +77,8 @@ class MDSStorage(plugins.IStoragePlugin):
                     log.error("Error requesting %s: %s", url, e)
                 except requests.exceptions.Timeout as e:
                     log.error("Timeout requesting %s: %s", url, e)
+                except Exception as e:
+                    log.error("Error requesting %s: %s", url, e)
                 time.sleep(1)
             else:
                 log.critical("Cannot upload %s", filename)

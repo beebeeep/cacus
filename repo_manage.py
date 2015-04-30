@@ -137,6 +137,9 @@ def update_repo_metadata(repo, env, arch):
     if old_repo and 'packages_file' in old_repo and old_repo['packages_file'].find(md5.hexdigest()) >= 0:
         log.warn("Packages file for %s/%s/%s not changed, skipping update", repo, env, arch)
         return
+    if size == 0:
+        log.warn("Looks like %s/%s/%s repo is empty, nothing to update", repo, env, arch)
+        return
 
     base_key = "{}/{}/{}/Packages_{}".format(repo, env, arch, md5.hexdigest())
     storage_key = loader.get_plugin('storage').put(base_key, file=packages)
@@ -204,7 +207,7 @@ def generate_packages_file(repo, env, arch):
                 elif k == 'sha512':
                     string = "SHA512: {0}\n".format(hexlify(v))
                 elif k == 'storage_key':
-                    string = "Filename: {0}\n".format(hexlify(v))
+                    string = "Filename: {0}\n".format(v)
                 else:
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)
@@ -212,7 +215,7 @@ def generate_packages_file(repo, env, arch):
     return data
 
 
-def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
+def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None, skipUpdateMeta=False):
     try:
         with common.RepoLock(common.db_cacus.locks, repo, src):
             with common.RepoLock(common.db_cacus.locks, repo, dst):
@@ -239,10 +242,11 @@ def dmove_package(pkg=None,  ver=None, repo=None, src=None, dst=None):
                 for d in result['debs']:
                     affected_arch.add(d['Architecture'])
                 for arch in affected_arch:
-                    log.info("Updating '%s/%s/%s' repo metadata", repo, src, arch)
-                    update_repo_metadata(repo, src, arch)
-                    log.info("Updating '%s/%s/%s' repo metadata", repo, dst, arch)
-                    update_repo_metadata(repo, dst, arch)
+                    if not skipUpdateMeta:
+                        log.info("Updating '%s/%s/%s' repo metadata", repo, src, arch)
+                        update_repo_metadata(repo, src, arch)
+                        log.info("Updating '%s/%s/%s' repo metadata", repo, dst, arch)
+                        update_repo_metadata(repo, dst, arch)
                 return {'result': common.status.OK, 'msg': msg}
     except (common.RepoLockTimeout, UpdateRepoMetadataError) as e:
         msg = "Dmove failed: {}".format(e)

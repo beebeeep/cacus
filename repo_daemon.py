@@ -11,8 +11,6 @@ import motor
 from binascii import hexlify
 import email.utils
 import time
-import cStringIO
-import StringIO
 
 import common
 import repo_manage
@@ -57,6 +55,7 @@ class PackagesHandler(CachedRequestHandler):
 
     @gen.coroutine
     def get(self, repo=None, env=None, arch=None):
+
         db = self.settings['db']
         (expired, dt) = yield self._cache_expired(repo, env, arch)
         if not expired:
@@ -64,32 +63,14 @@ class PackagesHandler(CachedRequestHandler):
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        cursor = db.repos[repo].find({'environment': env, 'debs.Architecture': arch}, {'environment': 0, '_id': 0})
-        while (yield cursor.fetch_next):
-            pkg = cursor.next_object()
-            for deb in pkg['debs']:
-                out = cStringIO.StringIO()
-                for k, v in deb.iteritems():
-                    if k == 'md5':
-                        #out.write("MD5sum: {0}\n".format(hexlify(v)))
-                        out.write(''.join(("MD5sum: ", hexlify(v), "\n")))
-                    elif k == 'sha1':
-                        #out.write("SHA1: {0}\n".format(hexlify(v)))
-                        out.write(''.join(("SHA1: ", hexlify(v), "\n")))
-                    elif k == 'sha256':
-                        #out.write("SHA256: {0}\n".format(hexlify(v)))
-                        out.write(''.join(("SHA256: ", hexlify(v), "\n")))
-                    elif k == 'sha512':
-                        #out.write("SHA512: {0}\n".format(hexlify(v)))
-                        out.write(''.join(("SHA512: ", hexlify(v), "\n")))
-                    elif k == 'storage_key':
-                        #out.write("Filename: {0}\n".format(v))
-                        out.write(''.join(("Filename: ", hexlify(v), "\n")))
-                    else:
-                        #out.write("{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8')))
-                        out.write(''.join((k.capitalize().encode('utf-8'), ': ', unicode(v).encode('utf-8'), "\n")))
-                out.write("\n")
-                self.write(out.getvalue())
+        doc = yield db.cacus[repo].find_one({'environment': env, 'architecture': arch})
+        if doc:
+            url = "{0}{1}".format('/storage/', doc['packages_file'])
+            logging.info("Redirecting %s/%s/%s/Packages to %s", repo, env, arch, url)
+            self.add_header("X-Accel-Redirect", url)
+            self.set_status(200)
+        else:
+            self.set_status(404)
 
 
 class SourcesHandler(CachedRequestHandler):
@@ -137,7 +118,7 @@ class SourcesFilesHandler(CachedRequestHandler):
                                             {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
-                url = "{0}{1}".format('/proxy-mds', f['storage_key'])
+                url = "{0}{1}".format('/storage/', f['storage_key'])
                 logging.info("Redirecting %s to %s", file, url)
                 self.add_header("X-Accel-Redirect", url)
                 break
@@ -261,9 +242,9 @@ def make_app():
     base = common.config['repo_daemon']['repo_base']
 
     packages_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$"
-    release_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$"
-    sources_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$"
-    sources_files_re = base + r"{0}/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
+    release_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$"
+    sources_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$"
+    sources_files_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
 
     api_dmove_re = base + r"/api/v1/dmove/(?P<repo>[-_.A-Za-z0-9]+)$"
     api_search_re = base + r"/api/v1/search/(?P<repo>[-_.A-Za-z0-9]+)$"
