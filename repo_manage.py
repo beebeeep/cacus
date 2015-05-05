@@ -13,6 +13,7 @@ from bson import binary
 import loader
 import common
 import dist_importer
+from dist_importer import ImportException
 
 log = logging.getLogger('cacus.repo_manage')
 
@@ -265,4 +266,10 @@ def dist_push(repo=None, changes=None):
     url = "http://dist.yandex.ru/{}/unstable/{}".format(repo, changes)
     result = common.download_file(url, filename)
     if result['result'] == common.status.OK:
-        dist_importer.import_package(filename, repo, 'unstable')
+        try:
+            dist_importer.import_package(filename, repo, 'unstable')
+        except ImportException as e:
+            return {'result': common.status.ERROR, 'msg': str(e)}
+        return {'result': common.status.OK, 'msg': 'Imported successfully'}
+    else:
+        return result

@@ -182,7 +182,15 @@ class ApiDistPushHandler(RequestHandler):
             self.set_status(404)
             self.write({'success': False, 'msg': "Repo {} is not configured".format(repo)})
 
-        self.settings['workers'].submit(repo_manage.dist_push, repo=repo, changes=changes_file)
+        r = yield self.settings['workers'].submit(repo_manage.dist_push, repo=repo, changes=changes_file)
+        if r['result'] == common.status.OK:
+            self.write({'success': True, 'msg': r['msg']})
+        elif r['result'] == common.status.NOT_FOUND:
+            self.set_status(404)
+            self.write({'success': False, 'msg': r['msg']})
+        else:
+            self.set_status(500)
+            self.write({'success': False, 'msg': r['msg']})
 
 
 class ApiSearchHandler(RequestHandler):
