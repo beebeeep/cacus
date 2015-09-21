@@ -1,7 +1,7 @@
 Κάκος 
 =====
 
-Proof of concept tool for Debian repos creating and maintaining
+Tool for creating and maintaining Debian repos with pluggable storage modules
 
 
 USAGE:
