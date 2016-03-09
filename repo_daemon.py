@@ -65,7 +65,7 @@ class PackagesHandler(CachedRequestHandler):
 
         doc = yield db.cacus[repo].find_one({'environment': env, 'architecture': arch})
         if doc:
-            url = "{0}{1}".format('/storage/', doc['packages_file'])
+            url = os.path.join(common.config['repo_daemon']['storage_base'], doc['packages_file'])
             logging.info("Redirecting %s/%s/%s/Packages to %s", repo, env, arch, url)
             self.add_header("X-Accel-Redirect", url)
             self.set_status(200)
@@ -118,7 +118,7 @@ class SourcesFilesHandler(CachedRequestHandler):
                                             {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
-                url = "{0}{1}".format('/storage/', f['storage_key'])
+                url = os.path.join(common.config['repo_daemon']['storage_base'], f['storage_key'])
                 logging.info("Redirecting %s to %s", file, url)
                 self.add_header("X-Accel-Redirect", url)
                 break

@@ -51,21 +51,24 @@ class EventHandler(pyinotify.ProcessEvent):
         changes.load_from_file(event.pathname)
         changes.filename = event.pathname
 
-        try:
-            signer = self._gpgCheck(changes.filename)
-        except errors.GPGMEError as e:
-            self.log.error("Cannot check PGP signature: %s", e)
-            map(os.unlink, incoming_files)
-            return
-        except Exception as e:
-            self.log.error("%s verification failed: %s", event.pathname, e)
-            map(os.unlink, incoming_files)
-            return
+        if common.config['duploader_daemon']['gpg_check']:
+            try:
+                signer = self._gpgCheck(changes.filename)
+            except errors.GPGMEError as e:
+                self.log.error("Cannot check PGP signature: %s", e)
+                map(os.unlink, incoming_files)
+                return
+            except Exception as e:
+                self.log.error("%s verification failed: %s", event.pathname, e)
+                map(os.unlink, incoming_files)
+                return
+        else:
+            signer = "<not checked>"
 
         self.log.info("%s: signed by %s: OK, looking for incoming files", event.pathname, signer)
 
         # .changes file contatins all incoming files and its checksums, so
-        # check if all files are available of wait for them
+        # check if all files are available or wait for them
         for f in changes.getFiles():
             filename = os.path.join(event.path, f[2])
             self.log.info("Looking for %s from .changes", filename)

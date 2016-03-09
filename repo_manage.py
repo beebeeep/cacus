@@ -33,7 +33,7 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
     affected_arch = set()
     for file in files:
         filename = os.path.basename(file)
-        base_key = "{0}/{1}".format(repo, filename)
+        base_key = "{0}/pool/{1}".format(repo, filename)
 
         p = common.db_repos[repo].find_one({'Source': changes['source'], 'Version': changes['version']})
         if p:
@@ -48,7 +48,7 @@ def upload_package(repo, env, files, changes, skipUpdateMeta=False):
         if not storage_key:
             log.critical("Error uploading %s, skipping whole package", file)
             raise UploadPackageError("Cannot upload {0} to storage".format(file))
-        storage_key = "/storage/" + storage_key
+        storage_key = os.path.join(common.config['repo_daemon']['storage_base'], storage_key)
 
         meta['environment'] = env
         meta['Source'] = changes['source']
@@ -187,7 +187,7 @@ def update_repo_metadata(repo, env, arch):
         }},
         new=False,
         upsert=True)
-    if 'packages_file' in old_repo:
+    if old_repo and 'packages_file' in old_repo:
         old_key = old_repo['packages_file']
         log.debug("Removing old Packages file %s", old_key)
         loader.get_plugin('storage').delete(old_key)

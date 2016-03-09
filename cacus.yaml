@@ -5,41 +5,36 @@ storage:
 #    auth_header: {"Authorization": "Basic XXX"}
 #    connect_timeout: 5
 #    read_timeout: 120
-#    temp_dir: /home/dmiga/test-repo/temp
+#    temp_dir: ~/test-repo/temp
     type: FileStorage
-    path: /tmp/
+    path: /srv/test-repo/
 
 logging:
     level: DEBUG 
     destinations:
         console: true
         syslog: False       # or syslog facility (daemon, user etc)
-        file: /var/log/cacus.log
+        file: /tmp/cacus.log
 metadb:
     type: single_mongo
     host: localhost
-    port: 27018
+    port: 27017
 
 repo_daemon:
     port: 1488
     repo_base: '/debian'
+    storage_base: '/storage'
 
 duploader_daemon:
+    gpg_check: false
     incoming_wait_timeout: 3
     repos:
-        yandex-trusty:
-            incoming_dir: /home/dmiga/test-repo/incoming/yandex-trusty
-            description: Do not forget description
-        yandex-precise:
-            incoming_dir: /home/dmiga/test-repo/incoming/yandex-precise
-            description: Do not forget description
         common:
-            incoming_dir: /home/dmiga/test-repo/incoming/common
-            repo_root: /home/dmiga/test-repo/common
+            incoming_dir: /srv/test-repo/incoming/common
             description: Do not forget description
     
 
 # make sure daemon is started under correct GPG environment 
 # to find all trusted and signing keys (see gpg(1) for more info)
 gpg:    
-    signer: root@cacus.haze.yandex.net
+    signer: cacus@miga.me.uk
