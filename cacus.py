@@ -20,7 +20,7 @@ if __name__ == '__main__':
     op_type.add_argument('--dmove', nargs=2, metavar=('PKG', 'VER'), help = 'Dmove package(s)')
     op_type.add_argument('--duploader-daemon', action='store_true', help='Start duploader daemon')
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
-    op_type.add_argument('--update-repo', metavar='REPO', nargs='?', help='Update repository metadata')
+    op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
     op_type.add_argument('--import-repo', type=str, metavar='PATH', help='Import mounted dist.yandex.ru repo')
     parser.add_argument('--from', choices=env_choices, help='From env')
     parser.add_argument('--to', choices=env_choices, help='To env')
@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
     import common
     common.config = common.load_config(args.config)
-    common.db_repos = common.connect_mongo(common.config['metadb'])['repos']
+    common.db_packages = common.connect_mongo(common.config['metadb'])['packages']
     common.db_cacus = common.connect_mongo(common.config['metadb'])['cacus']
 
     log = common.setup_logger('cacus')
@@ -45,8 +45,8 @@ if __name__ == '__main__':
         # repo_manage.upload_packages(args.to, args.env, args.pkgs)
         print "This option is broken for current moment"
         sys.exit(1)
-    elif args.update_repo:
-        repo_manage.update_repo_metadata(args.update_repo, args.env, args.arch)
+    elif args.update_distro:
+        repo_manage.update_distro_metadata(args.update_distro, force=True)
     elif args.duploader_daemon:
         duploader.start_duploader()
     elif args.repo_daemon:

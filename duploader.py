@@ -23,9 +23,9 @@ log = logging.getLogger('cacus.duploader')
 
 class EventHandler(pyinotify.ProcessEvent):
 
-    def __init__(self, repo=None):
-        self.repo = repo
-        self.log = logging.getLogger('cacus.duploader.{0}'.format(repo))
+    def __init__(self, distro=None):
+        self.distro = distro
+        self.log = logging.getLogger('cacus.duploader.{0}'.format(distro))
         self.uploaded_files = set()
         self.uploaded_files_lock = threading.Lock()
         self.uploaded_event = threading.Event()
@@ -97,9 +97,9 @@ class EventHandler(pyinotify.ProcessEvent):
         else:
             # all new packages are going to unstable
             # TODO: take kinda distributed lock before updating metadata and uploading file to storage
-            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to repo '%s', environment 'unstable'",
-                          changes['source'], changes['version'], self.repo)
-            repo_manage.upload_package(self.repo, 'unstable', incoming_files, changes=changes)
+            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', environment 'unstable'",
+                          changes['source'], changes['version'], self.distro)
+            repo_manage.upload_package(self.distro, 'unstable', incoming_files, changes=changes)
 
         # in any case, clean up all incoming files
         map(os.unlink, incoming_files)
@@ -122,21 +122,10 @@ def handle_files(notifier):
 
 
 def start_duploader():
-    for repo, param in common.config['duploader_daemon']['repos'].iteritems():
-        handler = EventHandler(repo=repo)
+    for distro, param in common.config['duploader_daemon']['distributions'].iteritems():
+        handler = EventHandler(distro=distro)
         wm = pyinotify.WatchManager()
         notifier = pyinotify.ThreadedNotifier(wm, handler)
         wdd = wm.add_watch(param['incoming_dir'], pyinotify.ALL_EVENTS)
-        log.info("Starting notifier for repo '%s' at %s", repo, param['incoming_dir'])
+        log.info("Starting notifier for distribution '%s' at %s", distro, param['incoming_dir'])
         notifier.start()
-
-
-def start_tornado_duploader():
-    # tornado is cool but we need to implement async processing of all incoming files...
-    # not sure we really need this now
-    wm = pyinotify.WatchManager()
-    for repo, param in common.config['repos'].iteritems():
-        wdd = wm.add_watch(param['incoming_dir'], pyinotify.IN_CLOSE_WRITE)
-    ioloop = IOLoop.instance()
-    notifier = pyinotify.TornadoAsyncNotifier(wm, ioloop, callback=handle_files)
-    ioloop.start()

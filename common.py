@@ -148,8 +148,7 @@ class RepoLockTimeout(Exception):
 
 class RepoLock:
 
-    def __init__(self, collection, repo, env, timeout=30):
-        self.collection = collection
+    def __init__(self, repo, env, timeout=30):
         self.repo = repo
         self.env = env
         self.timeout = timeout

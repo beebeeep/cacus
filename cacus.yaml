@@ -28,7 +28,7 @@ repo_daemon:
 duploader_daemon:
     gpg_check: false
     incoming_wait_timeout: 3
-    repos:
+    distributions:
         common:
             incoming_dir: /srv/test-repo/incoming/common
             description: Do not forget description

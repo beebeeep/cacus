@@ -11,6 +11,7 @@ import motor
 from binascii import hexlify
 import email.utils
 import time
+import re
 
 import common
 import repo_manage
@@ -26,15 +27,12 @@ class CachedRequestHandler(RequestHandler):
         pass
 
     @gen.coroutine
-    def _cache_expired(self, repo, env, arch='__all__'):
+    def _cache_expired(self, item, selector):
         db = self.settings['db']
         latest_dt = None
-        selector = {'environment': env}
-        if (arch != '__all__'):
-            selector['architecture'] = arch
-        repos = db.cacus[repo].find(selector, {'lastupdated': 1})
-        while (yield repos.fetch_next):
-            dt = repos.next_object()['lastupdated']
+        result = db.cacus[item].find(selector, {'lastupdated': 1})
+        while (yield result.fetch_next):
+            dt = result.next_object()['lastupdated']
             if not latest_dt or dt > latest_dt:
                 latest_dt = dt
 
@@ -54,19 +52,19 @@ class CachedRequestHandler(RequestHandler):
 class PackagesHandler(CachedRequestHandler):
 
     @gen.coroutine
-    def get(self, repo=None, env=None, arch=None):
+    def get(self, distro=None, env=None, arch=None):
 
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired(repo, env, arch)
+        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'environment': env, 'architecture': arch})
         if not expired:
             self.set_status(304)
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        doc = yield db.cacus[repo].find_one({'environment': env, 'architecture': arch})
+        doc = yield db.cacus.repos.find_one({'distro': distro, 'environment': env, 'architecture': arch})
         if doc:
-            url = os.path.join(common.config['repo_daemon']['storage_base'], doc['packages_file'])
-            logging.info("Redirecting %s/%s/%s/Packages to %s", repo, env, arch, url)
+            url = common.config['repo_daemon']['storage_base'] + '/' + doc['packages_file']
+            app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, env, arch, url)
             self.add_header("X-Accel-Redirect", url)
             self.set_status(200)
         else:
@@ -76,15 +74,15 @@ class PackagesHandler(CachedRequestHandler):
 class SourcesHandler(CachedRequestHandler):
 
     @gen.coroutine
-    def get(self, repo=None, env=None):
+    def get(self, distro=None, env=None):
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired(repo, env, '__all__')
+        (expired, dt) = yield self._cache_expired(distros, {'distro': distro})
         if not expired:
             self.set_status(304)
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        cursor = db.repos[repo].find({'environment': env, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
+        cursor = db.repos[distro].find({'environment': env, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             for k, v in pkg['dsc'].iteritems():
@@ -112,14 +110,14 @@ class SourcesHandler(CachedRequestHandler):
 class SourcesFilesHandler(CachedRequestHandler):
 
     @gen.coroutine
-    def get(self, repo=None, env=None, file=None):
+    def get(self, distro=None, env=None, file=None):
         db = self.settings['db']
-        doc = yield db.repos[repo].find_one({'environment': env, 'sources.name': file},
+        doc = yield db.repos[distro].find_one({'environment': env, 'sources.name': file},
                                             {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
                 url = os.path.join(common.config['repo_daemon']['storage_base'], f['storage_key'])
-                logging.info("Redirecting %s to %s", file, url)
+                app_log.info("Redirecting %s to %s", file, url)
                 self.add_header("X-Accel-Redirect", url)
                 break
         self.set_status(200)
@@ -129,15 +127,15 @@ class ReleaseHandler(CachedRequestHandler):
 
     @asynchronous
     @gen.coroutine
-    def get(self, repo=None, env=None, arch=None, gpg=None):
+    def get(self, distro=None, gpg=None):
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired(repo, env, arch)
+        (expired, dt) = yield self._cache_expired('distros', {'distro': distro})
         if not expired:
             self.set_status(304)
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        doc = yield db.cacus[repo].find_one({'environment': env, 'architecture': arch})
+        doc = yield db.cacus.distros.find_one({'distro': distro})
         if gpg:
             self.write(doc['release_gpg'])
         else:
@@ -148,13 +146,13 @@ class ApiDmoveHandler(RequestHandler):
 
     @asynchronous
     @gen.coroutine
-    def post(self, repo=None):
+    def post(self, distro=None):
         pkg = self.get_argument('pkg')
         ver = self.get_argument('ver')
         src = self.get_argument('from')
         dst = self.get_argument('to')
         r = yield self.settings['workers'].submit(repo_manage.dmove_package,
-                                                  repo=repo, pkg=pkg, ver=ver, src=src, dst=dst)
+                                                  distro=distro, pkg=pkg, ver=ver, src=src, dst=dst)
         if r['result'] == common.status.OK:
             self.write({'success': True, 'msg': r['msg']})
         elif r['result'] == common.status.NO_CHANGES:
@@ -163,8 +161,8 @@ class ApiDmoveHandler(RequestHandler):
             self.set_status(404)
             self.write({'success': False, 'msg': r['msg']})
         elif r['result'] == common.status.TIMEOUT:
-            # timeout on dmove can only if we cannot lock the repo,
-            # i.e. there is some other operation processing current repo
+            # timeout on dmove can only if we cannot lock the distro,
+            # i.e. there is some other operation processing current distro
             self.set_status(409)
             self.write({'success': False, 'msg': r['msg']})
 
@@ -173,16 +171,16 @@ class ApiDistPushHandler(RequestHandler):
 
     @asynchronous
     @gen.coroutine
-    def post(self, repo=None):
+    def post(self, distro=None):
         changes_file = self.get_argument('file')
 
-        if repo in common.config['duploader_daemon']['repos']:
+        if distro in common.config['duploader_daemon']['distributions']:
             self.write({'success': True, 'msg': 'Submitted package import job'})
         else:
             self.set_status(404)
-            self.write({'success': False, 'msg': "Repo {} is not configured".format(repo)})
+            self.write({'success': False, 'msg': "Repo {} is not configured".format(distro)})
 
-        r = yield self.settings['workers'].submit(repo_manage.dist_push, repo=repo, changes=changes_file)
+        r = yield self.settings['workers'].submit(repo_manage.dist_push, distro=distro, changes=changes_file)
         if r['result'] == common.status.OK:
             self.write({'success': True, 'msg': r['msg']})
         elif r['result'] == common.status.NOT_FOUND:
@@ -197,7 +195,7 @@ class ApiSearchHandler(RequestHandler):
 
     @asynchronous
     @gen.coroutine
-    def get(self, repo=None):
+    def get(self, distro=None):
         db = self.settings['db']
         pkg = self.get_argument('pkg', '')
         ver = self.get_argument('ver', '')
@@ -230,8 +228,7 @@ class ApiSearchHandler(RequestHandler):
 
         result = {}
         pkgs = []
-        app_log.debug("Searching for packages in %s with selector %s", repo, selector)
-        cursor = db.repos[repo].find(selector, projection)
+        cursor = db.repos[distro].find(selector, projection)
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             if pkg:
@@ -247,16 +244,17 @@ class ApiSearchHandler(RequestHandler):
 
 
 def make_app():
-    base = common.config['repo_daemon']['repo_base']
+    base = re.sub('/+$', '', common.config['repo_daemon']['repo_base'])
 
-    packages_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Packages$"
-    release_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/(?P<arch>\w+)/Release(?P<gpg>\.gpg)?$"
-    sources_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/Sources$"
-    sources_files_re = base + r"/(?P<repo>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
+    # using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
+    release_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/Release(?P<gpg>\.gpg)?$"
+    packages_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/Sources$"
+    sources_files_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
 
-    api_dmove_re = base + r"/api/v1/dmove/(?P<repo>[-_.A-Za-z0-9]+)$"
-    api_search_re = base + r"/api/v1/search/(?P<repo>[-_.A-Za-z0-9]+)$"
-    api_dist_push_re = base + r"/api/v1/dist-push/(?P<repo>[-_.A-Za-z0-9]+)$"
+    api_dmove_re = base + r"/api/v1/dmove/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_search_re = base + r"/api/v1/search/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_dist_push_re = base + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
     return Application([
         url(packages_re, PackagesHandler),
