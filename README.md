@@ -3,13 +3,15 @@
 
 Distributed, fault-tolerant and fast Debian repository with REST API and pluggable storage modules.
 
-IDEA:
+Idea:
 -----
 A common use case for internal (and some public) debian repos is to store packages in several environments (for example, unstable -> testing -> stable) and move them as they getting stabilized. Cacus encourages this approach by own design and features, although it's not mandatory. 
+
 Moreover, cacus is designed for high-load and high-availability environments, relying on MongoDB and various storage engines and can be easily installed and used on multiple instances behind any kind of load balancing. 
+
 Also, besides CLI interface cacus features handy REST API that can be used to integrate it with CI systems.
 
-INSTALLING:
+Installation:
 -----------
 Get the code, install the dependencies:
 Python libs (via pip or apt):
@@ -35,7 +37,7 @@ Also you will need MongoDB running somewhere, and storage:
 
 Human-friendly ways (debian package, docker image etc) pending.
 
-USAGE:
+Usage:
 ------
 Just run ```python cacus.py --help```
 
