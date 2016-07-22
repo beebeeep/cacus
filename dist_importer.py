@@ -83,7 +83,7 @@ def import_package(changefile=None, repo=None, env='unstable'):
     for url in pkg_files:
         file = os.path.join(common.config['storage']['temp_dir'], url.split('/')[-1])
         result = common.download_file(url, file)
-        if result['result'] != common.status.OK:
+        if not result.ok:
             [os.unlink(x) for x in downloaded]
             raise ImportException("Cannot download {}: {}".format(url, result['msg']))
         downloaded.append(file)
@@ -110,7 +110,7 @@ def import_repo(repo_url=None, repo='common', env='unstable'):
     for url in changes_files:
             file = os.path.join(common.config['storage']['temp_dir'], url.split('/')[-1])
             result = common.download_file(url, file)
-            if result['result'] == common.status.OK:
+            if not result.ok:
                 try:
                     import_package(file, repo, env)
                 except ImportException as e:

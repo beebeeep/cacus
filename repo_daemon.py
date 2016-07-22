@@ -16,9 +16,9 @@ import re
 import common
 import repo_manage
 
-access_log = common.setup_logger('tornado.access')
-app_log = common.setup_logger('tornado.application')
-gen_log = common.setup_logger('tornado.general')
+access_log = logging.getLogger('tornado.access')
+app_log = logging.getLogger('tornado.application')
+gen_log = logging.getLogger('tornado.general')
 
 
 class CachedRequestHandler(RequestHandler):
@@ -153,18 +153,16 @@ class ApiDmoveHandler(RequestHandler):
         dst = self.get_argument('to')
         r = yield self.settings['workers'].submit(repo_manage.dmove_package,
                                                   distro=distro, pkg=pkg, ver=ver, src=src, dst=dst)
-        if r['result'] == common.status.OK:
-            self.write({'success': True, 'msg': r['msg']})
-        elif r['result'] == common.status.NO_CHANGES:
-            self.write({'success': True, 'msg': r['msg']})
-        elif r['result'] == common.status.NOT_FOUND:
+        if r.ok:
+            self.write({'success': True, 'msg': r.msg})
+        elif r.status == 'NOT_FOUND':
             self.set_status(404)
-            self.write({'success': False, 'msg': r['msg']})
-        elif r['result'] == common.status.TIMEOUT:
+            self.write({'success': False, 'msg': r.msg})
+        elif r.status == 'TIMEOUT':
             # timeout on dmove can only if we cannot lock the distro,
             # i.e. there is some other operation processing current distro
             self.set_status(409)
-            self.write({'success': False, 'msg': r['msg']})
+            self.write({'success': False, 'msg': r.msg})
 
 
 class ApiDistPushHandler(RequestHandler):
@@ -181,14 +179,14 @@ class ApiDistPushHandler(RequestHandler):
             self.write({'success': False, 'msg': "Repo {} is not configured".format(distro)})
 
         r = yield self.settings['workers'].submit(repo_manage.dist_push, distro=distro, changes=changes_file)
-        if r['result'] == common.status.OK:
-            self.write({'success': True, 'msg': r['msg']})
-        elif r['result'] == common.status.NOT_FOUND:
+        if r.ok:
+            self.write({'success': True, 'msg': r.msg})
+        elif r.status == 'NOT_FOUND':
             self.set_status(404)
-            self.write({'success': False, 'msg': r['msg']})
+            self.write({'success': False, 'msg': r.msg})
         else:
             self.set_status(500)
-            self.write({'success': False, 'msg': r['msg']})
+            self.write({'success': False, 'msg': r.msg})
 
 
 class ApiSearchHandler(RequestHandler):

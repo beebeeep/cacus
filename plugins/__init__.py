@@ -7,16 +7,19 @@ from yapsy.IPlugin import IPlugin
 class IStoragePlugin(IPlugin):
 
     def configure(self, config):
-        raise Exception("Should be implemented")
+        raise NotImplementedError
 
     def put(self, key, filename):
-        raise Exception("Should be implemented")
+        raise NotImplementedError
 
     def get(self, key):
-        raise Exception("Should be implemented")
+        raise NotImplementedError
 
 
 class IMetadbPlugin(IPlugin):
 
     def configure(self, config):
-        raise Exception("Should be implemented")
+        raise NotImplementedError
+
+class PluginInitException(Exception):
+    pass

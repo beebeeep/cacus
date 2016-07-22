@@ -1,8 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import argparse
 import sys
+import argparse
+
+import logging
+
+import common
+import repo_manage
+import repo_daemon
+import duploader
+import dist_importer
+import plugin_loader
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 
@@ -30,17 +39,35 @@ if __name__ == '__main__':
     parser.add_argument('pkgs', type=str, nargs='*')
     args = parser.parse_args()
 
-    import common
     common.config = common.load_config(args.config)
     common.db_packages = common.connect_mongo(common.config['metadb'])['packages']
     common.db_cacus = common.connect_mongo(common.config['metadb'])['cacus']
+    
+    
+    handlers = []
+    dst = common.config['logging']['destinations']
+    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
+    if dst['console']:
+        h = logging.StreamHandler()
+        h.setFormatter(logFormatter)
+        handlers.append(h)
+    if dst['file']:
+        h = logging.handlers.WatchedFileHandler(dst['file'])
+        h.setFormatter(logFormatter)
+        handlers.append(h)
+    if dst['syslog']:
+        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
+        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
+        handlers.append(h)
+    
+    rootLogger = logging.getLogger('')
+    rootLogger.setLevel(logging.DEBUG)
+    for handler in handlers:
+        rootLogger.addHandler(handler)
 
-    log = common.setup_logger('cacus')
+    log = logging.getLogger('cacus')
+    plugin_loader.load_plugins()
 
-    import repo_manage
-    import repo_daemon
-    import duploader
-    import dist_importer
     if args.upload:
         # repo_manage.upload_packages(args.to, args.env, args.pkgs)
         print "This option is broken for current moment"

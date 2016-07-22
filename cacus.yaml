@@ -6,8 +6,12 @@ storage:
 #    connect_timeout: 5
 #    read_timeout: 120
 #    temp_dir: ~/test-repo/temp
-    type: FileStorage
-    path: /srv/test-repo/
+#    type: FileStorage
+#    path: /srv/test-repo/
+    type: AzureStorage
+    account_name: cacusblob
+    account_key: 'jIO/UzXnsLsK8KNzCekqxmv7E87LbyXg3y0RK5C5URy0yVmahwBCDv4+TbiNqvKSAesI58yYeKJLpZFXfXMqsA=='
+    container: repos
 
 logging:
     level: DEBUG 

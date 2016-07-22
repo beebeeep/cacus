@@ -12,14 +12,7 @@ import logging.handlers
 import StringIO
 from pyme import core
 from pyme.constants.sig import mode
-
-
-class Enum(set):
-
-    def __getattr__(self, name):
-        if name in self:
-            return name
-        raise AttributeError
+from threading import Event
 
 
 def setup_logger(name):
@@ -103,16 +96,16 @@ def download_file(url, filename):
                 for chunk in r.iter_content(64*1024):
                     total_bytes += len(chunk)
                     f.write(chunk)
-            result = {'result': globals()['status'].OK, 'msg': 'OK'}
+            result = Result('OK', 'OK')
             log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
         else:
             r.close()
-            result = {'result': globals()['status'].NOT_FOUND, 'msg': 'GET {}: 404'.format(url)}
+            result = Result('NOT_FOUND', 'GET {}: 404'.format(url))
         r.close()
     except (requests.ConnectionError, requests.HTTPError) as e:
-        result = {'result': globals()['status'].ERROR, 'msg': str(e)}
+        result = Result('ERROR', e)
     except requests.Timeout as e:
-        result = {'result': globals()['status'].TIMEOUT, 'msg': str(e)}
+        result = Result('TImeout', e)
     return result
 
 
@@ -141,6 +134,22 @@ class myStringIO(StringIO.StringIO):
         # close() on StringIO will free memory buffer, so 'with' statement is destructive
         self.close()
 
+class ProxyStream(object):
+    """ stream-like object for streaming result of blocking function to
+        client of Tornado server
+    """
+    def __init__(self, handler):
+        self._handler = handler
+    
+    def write(self, data):
+        if not self._handler.dead:
+            self._handler.write(data)
+            event = Event()
+            self._handler.flush(callback=lambda: event.set())
+            event.wait()
+            return len(data)
+        else:
+            raise IOError("Client has closed connection")
 
 class RepoLockTimeout(Exception):
     pass
@@ -189,7 +198,22 @@ class RepoLock:
         except:
             self.log.error("Error while unlocking %s/%s: %s", self.repo, self.env, sys.exc_info())
 
+class Result(object):
+    def __init__(self, status, msg=None, data=None):
+        if status in ['OK', 'NO_CHANGES', 'NOT_FOUND', 'ERROR', 'TIMEOUT']:
+            self.status = status
+        else:
+            raise AttributeError("Invalid status")
+        if not msg:
+            self.msg = status
+        else:
+            self.msg = str(msg)
+        self.data = data
+        self.ok = self.msg in ['OK', 'NO_CHANGES']
+
+    def __str__(self):
+        return "{}: {}".format(self.status, self.msg)
+
 config = None
 db_repos = None
 db_cacus = None
-status = Enum(['OK', 'NO_CHANGES', 'NOT_FOUND', 'ERROR', 'TIMEOUT'])
