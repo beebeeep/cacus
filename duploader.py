@@ -96,7 +96,6 @@ class EventHandler(pyinotify.ProcessEvent):
             self.log.error("Checksum verification failed: %s", e)
         else:
             # all new packages are going to unstable
-            # TODO: take kinda distributed lock before updating metadata and uploading file to storage
             self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', environment 'unstable'",
                           changes['source'], changes['version'], self.distro)
             repo_manage.upload_package(self.distro, 'unstable', incoming_files, changes=changes)

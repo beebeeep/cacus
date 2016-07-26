@@ -27,7 +27,7 @@ metadb:
 repo_daemon:
     port: 1488
     repo_base: '/debian'
-    storage_base: '/storage'
+    storage_subdir: 'storage'
 
 duploader_daemon:
     gpg_check: false

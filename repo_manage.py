@@ -43,12 +43,12 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
             hashes = common.get_hashes(f)
 
         log.info("Uploading %s to distro '%s' environment '%s'", base_key, distro, env)
-        try:
-            storage_key = plugin_loader.get_plugin('storage').put(base_key, filename=file)
-        except (plugins.PluginInitException, IOError) as e:
+        result = plugin_loader.get_plugin('storage').put(base_key, filename=file)
+        if result.ok:
+            storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], result.data)
+        else:
             log.critical("Error uploading %s, skipping whole package: %s", file, e)
             raise UploadPackageError("Cannot upload {0} to storage".format(file))
-        storage_key = os.path.join(common.config['repo_daemon']['storage_base'], storage_key)
 
         meta['environment'] = env
         meta['Source'] = changes['source']
@@ -136,9 +136,13 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
                 log.warn("Packages file for %s/%s/%s not changed, skipping update", distro, env, arch)
                 continue
 
+            # we hold Packages under unique filename as far as we don't want to make assumptions whether 
+            # our storage engine supports updating of keys
             base_key = "{}/{}/{}/Packages_{}".format(distro, env, arch, md5.hexdigest())
-            storage_key = plugin_loader.get_plugin('storage').put(base_key, file=packages)
-            if not storage_key:
+            result = plugin_loader.get_plugin('storage').put(base_key, file=packages)
+            if result.ok:
+                storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], result.data)
+            else:
                 log.critical("Error uploading new Packages", file)
                 raise UpdateRepoMetadataError("Cannot upload Packages file to storage")
 

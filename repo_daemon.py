@@ -12,9 +12,11 @@ from binascii import hexlify
 import email.utils
 import time
 import re
+import os
 
 import common
 import repo_manage
+import plugin_loader
 
 access_log = logging.getLogger('tornado.access')
 app_log = logging.getLogger('tornado.application')
@@ -59,11 +61,18 @@ class PackagesHandler(CachedRequestHandler):
         if not expired:
             self.set_status(304)
             return
-        self.add_header("Last-Modified", httputil.format_timestamp(dt))
+        if not dt:
+            self.set_status(404)
+            return
+        self.add_header('Last-Modified', httputil.format_timestamp(dt))
+        self.set_header('Content-Type', 'application/octet-stream')
 
         doc = yield db.cacus.repos.find_one({'distro': distro, 'environment': env, 'architecture': arch})
         if doc:
-            url = common.config['repo_daemon']['storage_base'] + '/' + doc['packages_file']
+            s = common.config['repo_daemon']
+            url = os.path.join(s['repo_base'], doc['packages_file'])
+            # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
+            # user to offload cacus' StorageHandler if current storage allows it
             app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, env, arch, url)
             self.add_header("X-Accel-Redirect", url)
             self.set_status(200)
@@ -116,7 +125,8 @@ class SourcesFilesHandler(CachedRequestHandler):
                                             {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
-                url = os.path.join(common.config['repo_daemon']['storage_base'], f['storage_key'])
+                s = common.config['repo_daemon']
+                url = os.path.join(s['repo_base'], f['storage_key'])
                 app_log.info("Redirecting %s to %s", file, url)
                 self.add_header("X-Accel-Redirect", url)
                 break
@@ -125,7 +135,6 @@ class SourcesFilesHandler(CachedRequestHandler):
 
 class ReleaseHandler(CachedRequestHandler):
 
-    @asynchronous
     @gen.coroutine
     def get(self, distro=None, gpg=None):
         db = self.settings['db']
@@ -133,7 +142,8 @@ class ReleaseHandler(CachedRequestHandler):
         if not expired:
             self.set_status(304)
             return
-        self.add_header("Last-Modified", httputil.format_timestamp(dt))
+        self.add_header('Last-Modified', httputil.format_timestamp(dt))
+        self.set_header('Content-Type', 'application/octet-stream')
 
         doc = yield db.cacus.distros.find_one({'distro': distro})
         if gpg:
@@ -144,7 +154,6 @@ class ReleaseHandler(CachedRequestHandler):
 
 class ApiDmoveHandler(RequestHandler):
 
-    @asynchronous
     @gen.coroutine
     def post(self, distro=None):
         pkg = self.get_argument('pkg')
@@ -167,7 +176,6 @@ class ApiDmoveHandler(RequestHandler):
 
 class ApiDistPushHandler(RequestHandler):
 
-    @asynchronous
     @gen.coroutine
     def post(self, distro=None):
         changes_file = self.get_argument('file')
@@ -191,7 +199,6 @@ class ApiDistPushHandler(RequestHandler):
 
 class ApiSearchHandler(RequestHandler):
 
-    @asynchronous
     @gen.coroutine
     def get(self, distro=None):
         db = self.settings['db']
@@ -241,18 +248,42 @@ class ApiSearchHandler(RequestHandler):
         self.write(result)
 
 
+class StorageHandler(RequestHandler):
+
+    def on_connection_close(self):
+        self.dead = True
+
+    @gen.coroutine
+    def get(self, key=None):
+        self.dead = False
+        stream = common.ProxyStream(self)
+        self.set_header('Content-Type', 'application/octet-stream')
+        # TODO last-modified, content-length and other metadata _should_ be provided! 
+        result = yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
+        print key
+        if result.status == 'NOT_FOUND':
+            self.set_status(404)
+        if result.status == 'ERROR':
+            self.set_status(500)
+            app_log.error("Got error from storage plugin: %s", result.msg)
+        self.finish()
+
+
 def make_app():
-    base = re.sub('/+$', '', common.config['repo_daemon']['repo_base'])
+    s = common.config['repo_daemon']
 
     # using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
-    release_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/Release(?P<gpg>\.gpg)?$"
-    packages_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/binary-(?P<arch>\w+)/Packages$"
-    sources_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/Sources$"
-    sources_files_re = base + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
+    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/Release(?P<gpg>\.gpg)?$"
+    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/Sources$"
+    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
 
-    api_dmove_re = base + r"/api/v1/dmove/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_search_re = base + r"/api/v1/search/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_dist_push_re = base + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_dmove_re = s['repo_base'] + r"/api/v1/dmove/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_search_re = s['repo_base'] + r"/api/v1/search/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
+
+    storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
+    print storage_re
 
     return Application([
         url(packages_re, PackagesHandler),
@@ -261,7 +292,8 @@ def make_app():
         url(sources_files_re, SourcesFilesHandler),
         url(api_dmove_re, ApiDmoveHandler),
         url(api_search_re, ApiSearchHandler),
-        url(api_dist_push_re, ApiDistPushHandler)
+        url(api_dist_push_re, ApiDistPushHandler),
+        url(storage_re, StorageHandler),
         ])
 
 

@@ -52,6 +52,9 @@ def load_config(config_file):
         logging.critical("Cannot find suitable keys for %s", config['gpg']['signer'])
         sys.exit(1)
 
+    config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')
+    config['repo_daemon']['storage_subdir'] = config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
+
     return config
 
 
