@@ -1,0 +1,4 @@
+[Core]
+Name = AzureStorage
+Module = AzureStorage
+
