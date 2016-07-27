@@ -98,7 +98,10 @@ class EventHandler(pyinotify.ProcessEvent):
             # all new packages are going to unstable
             self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', environment 'unstable'",
                           changes['source'], changes['version'], self.distro)
-            repo_manage.upload_package(self.distro, 'unstable', incoming_files, changes=changes)
+            try:
+                common.with_retries(repo_manage.upload_package, self.distro, 'unstable', incoming_files, changes=changes)
+            except Exception as e:
+                self.log.error("Error while uploading file: %s", e)
 
         # in any case, clean up all incoming files
         map(os.unlink, incoming_files)

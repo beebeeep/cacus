@@ -56,10 +56,10 @@ class AzureStorage(plugins.IStoragePlugin):
             self.storage.delete_blob(self.container, key)
         except AzureMissingResourceHttpError:
             log.error("File '%s' was not found in %s/%s", key, self.storage.account_name, self.container)
-            return common.Result('NOT_FOUND', 'File not found')
+            raise common.NotFound('File not found')
         except Exception as e:
             log.error("Cannot delete '%s' from %s/%s: %s", key, self.storage.account_name, self.container, e)
-            return common.Result('ERROR', e)
+            raise common.FatalError(e)
 
     def put(self, key, filename=None, file=None):
         storage_key = key
@@ -74,9 +74,10 @@ class AzureStorage(plugins.IStoragePlugin):
                 self.storage.create_blob_from_stream(self.container, storage_key, file, content_settings=ContentSettings(content_type='application/octet-stream'))
                 file.seek(old_pos)
         except Exception as e:
+            # TODO: more detailed error inspection
             log.critical("Error uploading to %s/%s: %s", self.storage.storage_account, self.container, e)
-            return common.Result('ERROR', e)
-        return common.Result('OK', 'OK', storage_key)
+            raise common.FatalError(e)
+        return storage_key
 
 
     def get(self, key, stream):
@@ -91,11 +92,11 @@ class AzureStorage(plugins.IStoragePlugin):
                 stream.write(chunk.content)
             except IOError:
                 # remote side closed connection
-                return common.Result('ERROR', 'Remote side closed connection')
-            except AzureMissingResourceHttpError:
-                return common.Result('NOT_FOUND')
+                return
+            except AzureMissingResourceHttpError as e:
+                raise common.NotFound(e)
             except (AzureHttpError, AzureException) as e:
-                return common.Result('ERROR', 'Error while downloading {}: {}'.format(key, e))
+                raise common.TemporaryError('Error while downloading {}: {}'.format(key, e))
 
             blob_length = int(chunk.properties.content_range.split('/')[1])
             chunk_start, chunk_end, blob_size = map(int, re.match(r'^bytes\s+(\d+)-(\d+)/(\d+)$', chunk.properties.content_range).groups())
@@ -105,4 +106,3 @@ class AzureStorage(plugins.IStoragePlugin):
             else:
                 chunk_start = chunk_end + 1
                 chunk_end += chunk_size
-        return common.Result('OK')

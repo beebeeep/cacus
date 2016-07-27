@@ -42,3 +42,6 @@ duploader_daemon:
 # to find all trusted and signing keys (see gpg(1) for more info)
 gpg:    
     signer: cacus@miga.me.uk
+
+retry_count: 3
+retry_delays: [2, 5, 10, 30, 60, 90]

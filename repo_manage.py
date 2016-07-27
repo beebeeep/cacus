@@ -43,12 +43,8 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
             hashes = common.get_hashes(f)
 
         log.info("Uploading %s to distro '%s' environment '%s'", base_key, distro, env)
-        result = plugin_loader.get_plugin('storage').put(base_key, filename=file)
-        if result.ok:
-            storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], result.data)
-        else:
-            log.critical("Error uploading %s, skipping whole package: %s", file, e)
-            raise UploadPackageError("Cannot upload {0} to storage".format(file))
+        storage_key = plugin_loader.get_plugin('storage').put(base_key, filename=file)
+        storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
         meta['environment'] = env
         meta['Source'] = changes['source']
@@ -70,7 +66,7 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
                 deb = debfile.DebFile(file)
             except debfile.DebError as e:
                 log.critical("Cannot load debfile %s: %s", file, e)
-                raise UploadPackageError("Cannot load debfile {0}: {1}".format(file, e))
+                raise common.FatalError("Cannot load debfile {0}: {1}".format(file, e))
 
             affected_arches.add(deb.debcontrol()['Architecture'])
             for k, v in deb.debcontrol().iteritems():
@@ -106,9 +102,9 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
                 if not skipUpdateMeta:
                     log.info("Updating '%s/%s' distro metadata for arches: %s", distro, env, ', '.join(affected_arches))
                     update_distro_metadata(distro, [env], affected_arches)
-        except (common.RepoLockTimeout, UpdateRepoMetadataError) as e:
+        except common.RepoLockTimeout as e:
             log.error("Error updating distro: %s", e)
-            raise UploadPackageError("Cannot lock distro: {0}".format(e))
+            raise common.TemporaryError("Cannot lock distro: {0}".format(e))
     else:
         log.info("No changes made on distro %s/%s, skipping metadata update", distro, env)
 
@@ -139,12 +135,8 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
             # we hold Packages under unique filename as far as we don't want to make assumptions whether 
             # our storage engine supports updating of keys
             base_key = "{}/{}/{}/Packages_{}".format(distro, env, arch, md5.hexdigest())
-            result = plugin_loader.get_plugin('storage').put(base_key, file=packages)
-            if result.ok:
-                storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], result.data)
-            else:
-                log.critical("Error uploading new Packages", file)
-                raise UpdateRepoMetadataError("Cannot upload Packages file to storage")
+            storage_key = plugin_loader.get_plugin('storage').put(base_key, file=packages)
+            storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
             old_repo = common.db_cacus.repos.find_and_modify(
                     query={'distro': distro, 'environment': env, 'architecture': arch},
@@ -165,8 +157,10 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
                 old_key = old_repo['packages_file']
                 log.debug("Removing old Packages file %s", old_key)
 
-                plugin_loader.get_plugin('storage').delete(old_key)
-
+                try:
+                    plugin_loader.get_plugin('storage').delete(old_key)
+                except common.NotFound:
+                    log.warning("Cannot find old Packages file")
 
     # now create Release file for whole distro (aka "distribution" for Debian folks) including all envs and arches
     pkg_files = list(common.db_cacus.repos.find({'distro': distro}))
@@ -239,14 +233,14 @@ def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpda
                 if not result:
                     msg = "Cannot find package '{}_{}' in distro '{}' at env {}".format(pkg, ver, distro, src)
                     log.error(msg)
-                    return common.Result('NOT_FOUND', msg)
+                    raise common.NotFound(msg)
                 elif result['environment'] == dst:
                     msg = "Package '{}_{}' is already in distro '{}' at env {}".format(pkg, ver, distro, src)
                     log.warning(msg)
-                    return common.Result('NO_CHANGES', msg)
-                else:
-                    msg = "Package '{}_{}' was dmoved in distro '{}' from {} to {}".format(pkg, ver, distro, src, dst)
-                    log.info(msg)
+                    return msg
+
+                msg = "Package '{}_{}' was dmoved in distro '{}' from {} to {}".format(pkg, ver, distro, src, dst)
+                log.info(msg)
 
                 affected_arches = set()
                 for d in result['debs']:
@@ -257,12 +251,11 @@ def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpda
                         update_distro_metadata(distro, src, arch)
                         log.info("Updating '%s/%s/%s' distro metadata", distro, dst, arch)
                         update_distro_metadata(distro, dst, arch)
-                return common.Result('OK', msg)
-    except (common.RepoLockTimeout, UpdateRepoMetadataError) as e:
-        msg = "Dmove failed: {}".format(e)
-        return common.Result('TIMEOUT', msg)
+                return msg
+    except common.RepoLockTimeout as e:
+        raise common.TemporaryError(e)
 
-
+"""
 def dist_push(distro=None, changes=None):
     log.info("Got push for distro %s file %s", distro, changes)
     try:
@@ -282,3 +275,4 @@ def dist_push(distro=None, changes=None):
         return common.Result('OK', 'Imported successfully')
     else:
         return result
+"""

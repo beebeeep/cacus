@@ -27,13 +27,12 @@ class FileStorage(plugins.IStoragePlugin):
         try:
             fname = os.path.join(self.root, key)
             if not os.path.isfile(fname):
-                return common.Result('NOT_FOUND', 'File not found')
+                raise common.FatalError('File not found')
             else:
                 os.unlink(os.path.join(self.root, key))
         except Exception as e:
             log.error("Cannot delete file %s: %s", key, e)
-            return common.Result('ERROR', e)
-        return common.Result('OK')
+            raise common.FatalError(e)
 
     def put(self, key, filename=None, file=None):
         #TODO: hashdir mb?
@@ -45,7 +44,7 @@ class FileStorage(plugins.IStoragePlugin):
                 os.makedirs(storage_dir)
             except Exception as e:
                 log.critical("Cannot create path for given key '%s': %s", key, e)
-                return common.Result('ERROR', e)
+                raise common.FatalError(e)
 
         if filename:
             log.debug("Uploading from %s to %s", filename, storage_path)
@@ -53,7 +52,7 @@ class FileStorage(plugins.IStoragePlugin):
                 copy(filename, storage_path)
             except Exception as e:
                 log.critical("Cannot upload file: %s", e)
-                return common.Result('ERROR', e)
+                raise common.FatalError(e)
         elif file:
             log.debug("Uploading from <stream> to %s", storage_path)
             try:
@@ -65,25 +64,24 @@ class FileStorage(plugins.IStoragePlugin):
                 file.seek(old_pos)
             except Exception as e:
                 log.critical("Cannot upload file: %s", e)
-                return common.Result('ERROR', e)
+                raise common.FatalError(e)
 
-        return common.Result('OK', 'OK', storage_key)
+        return storage_key
 
 
     def get(self, key, stream):
         try:
             fname = os.path.join(self.root, key)
             if not os.path.isfile(fname):
-                return common.Result('NOT_FOUND', 'File not found')
+                raise common.NotFound('File not found')
             else:
                 f = open(fname, 'r')
         except Exception as e:
             log.error("Cannot open file %s: %s", key, e)
-            return common.Result('ERROR', e)
+            common.FatalError(e)
         for chunk in iter(lambda: f.read(4*1024*1024), b''):
             try:
                 stream.write(chunk)
             except IOError:
                 # remote side closed connection
                 break
-        return common.Result('OK')

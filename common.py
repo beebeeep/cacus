@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import sys
+import time
 import yaml
 import pymongo
 import hashlib
-import sys
-import time
 import requests
 import logging
 import logging.handlers
@@ -13,6 +13,7 @@ import StringIO
 from pyme import core
 from pyme.constants.sig import mode
 from threading import Event
+from itertools import import chain, repeat
 
 
 def setup_logger(name):
@@ -94,22 +95,25 @@ def download_file(url, filename):
     try:
         total_bytes = 0
         r = requests.get(url, stream=True)
+        log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
         if r.status_code == 200:
             with open(filename, 'w') as f:
-                for chunk in r.iter_content(64*1024):
+                for chunk in r.iter_content(4*1024*1024):
                     total_bytes += len(chunk)
                     f.write(chunk)
-            result = Result('OK', 'OK')
-            log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
+        elif r.status_code = 404:
+            r.close()
+            raise common.NotFound("{} returned {} {}".format(url, r.status_code, r.reason))
         else:
             r.close()
-            result = Result('NOT_FOUND', 'GET {}: 404'.format(url))
+            raise common.TemporaryError("{} returned {} {}".format(url, r.status_code, r.reason))
         r.close()
     except (requests.ConnectionError, requests.HTTPError) as e:
-        result = Result('ERROR', e)
+        raise common.TemporaryError("Cannot fetch {}: {}".format(url, e))
     except requests.Timeout as e:
-        result = Result('TImeout', e)
-    return result
+        raise common.Timeout("Cannot fetch {}: {}".format(url, e))
+    except IOError as e:
+        raise common.FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
 
 
 def gpg_sign(data, signer_email):
@@ -122,6 +126,26 @@ def gpg_sign(data, signer_email):
     ctx.op_sign(plain, sig, mode.DETACH)
     sig.seek(0, 0)
     return sig.read()
+
+def with_retries(fun, *args, **kwargs):
+    delays = common.config['retry_delays']
+    # repeat last delay infinitely 
+    delays = chain(delays[:-1], repeat(delays[-1]))
+    exc = None
+    for try_ in xrange(common.config['retry_count']):
+            try:
+                result = f(*args, **kwargs)
+            except (Timeout, TemporaryError, RepoLockTimeout) as e:
+                exc = e
+                pass
+            except (FatalError, NotFound, Exception):
+                raise
+            else:
+                break
+            time.sleep(delays.next())
+    else:
+        raise exc
+    return result
 
 
 class myStringIO(StringIO.StringIO):
@@ -154,9 +178,20 @@ class ProxyStream(object):
         else:
             raise IOError("Client has closed connection")
 
-class RepoLockTimeout(Exception):
+class FatalError(Exception):
     pass
 
+class TemporaryError(Exception):
+    pass
+
+class Timeout(Exception):
+    pass
+
+class NotFound(Exception):
+    pass
+
+class RepoLockTimeout(Exception):
+    pass
 
 class RepoLock:
 
@@ -200,22 +235,6 @@ class RepoLock:
             pass
         except:
             self.log.error("Error while unlocking %s/%s: %s", self.repo, self.env, sys.exc_info())
-
-class Result(object):
-    def __init__(self, status, msg=None, data=None):
-        if status in ['OK', 'NO_CHANGES', 'NOT_FOUND', 'ERROR', 'TIMEOUT']:
-            self.status = status
-        else:
-            raise AttributeError("Invalid status")
-        if not msg:
-            self.msg = status
-        else:
-            self.msg = str(msg)
-        self.data = data
-        self.ok = self.msg in ['OK', 'NO_CHANGES']
-
-    def __str__(self):
-        return "{}: {}".format(self.status, self.msg)
 
 config = None
 db_repos = None

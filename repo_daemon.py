@@ -260,7 +260,6 @@ class StorageHandler(RequestHandler):
         self.set_header('Content-Type', 'application/octet-stream')
         # TODO last-modified, content-length and other metadata _should_ be provided! 
         result = yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
-        print key
         if result.status == 'NOT_FOUND':
             self.set_status(404)
         if result.status == 'ERROR':
