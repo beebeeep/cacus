@@ -13,7 +13,28 @@ import StringIO
 from pyme import core
 from pyme.constants.sig import mode
 from threading import Event
-from itertools import import chain, repeat
+from itertools import chain, repeat
+
+
+config = None
+db_repos = None
+db_cacus = None
+
+
+class FatalError(Exception):
+    pass
+
+class TemporaryError(Exception):
+    pass
+
+class Timeout(Exception):
+    pass
+
+class NotFound(Exception):
+    pass
+
+class RepoLockTimeout(Exception):
+    pass
 
 
 def setup_logger(name):
@@ -101,19 +122,19 @@ def download_file(url, filename):
                 for chunk in r.iter_content(4*1024*1024):
                     total_bytes += len(chunk)
                     f.write(chunk)
-        elif r.status_code = 404:
+        elif r.status_code == 404:
             r.close()
-            raise common.NotFound("{} returned {} {}".format(url, r.status_code, r.reason))
+            raise NotFound("{} returned {} {}".format(url, r.status_code, r.reason))
         else:
             r.close()
-            raise common.TemporaryError("{} returned {} {}".format(url, r.status_code, r.reason))
+            raise TemporaryError("{} returned {} {}".format(url, r.status_code, r.reason))
         r.close()
     except (requests.ConnectionError, requests.HTTPError) as e:
-        raise common.TemporaryError("Cannot fetch {}: {}".format(url, e))
+        raise TemporaryError("Cannot fetch {}: {}".format(url, e))
     except requests.Timeout as e:
-        raise common.Timeout("Cannot fetch {}: {}".format(url, e))
+        raise Timeout("Cannot fetch {}: {}".format(url, e))
     except IOError as e:
-        raise common.FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
+        raise FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
 
 
 def gpg_sign(data, signer_email):
@@ -128,13 +149,13 @@ def gpg_sign(data, signer_email):
     return sig.read()
 
 def with_retries(fun, *args, **kwargs):
-    delays = common.config['retry_delays']
+    delays = config['retry_delays']
     # repeat last delay infinitely 
     delays = chain(delays[:-1], repeat(delays[-1]))
-    exc = None
-    for try_ in xrange(common.config['retry_count']):
+    exc = Exception("Don't blink!")
+    for try_ in xrange(config['retry_count']):
             try:
-                result = f(*args, **kwargs)
+                result = fun(*args, **kwargs)
             except (Timeout, TemporaryError, RepoLockTimeout) as e:
                 exc = e
                 pass
@@ -177,21 +198,6 @@ class ProxyStream(object):
             return len(data)
         else:
             raise IOError("Client has closed connection")
-
-class FatalError(Exception):
-    pass
-
-class TemporaryError(Exception):
-    pass
-
-class Timeout(Exception):
-    pass
-
-class NotFound(Exception):
-    pass
-
-class RepoLockTimeout(Exception):
-    pass
 
 class RepoLock:
 
@@ -236,6 +242,3 @@ class RepoLock:
         except:
             self.log.error("Error while unlocking %s/%s: %s", self.repo, self.env, sys.exc_info())
 
-config = None
-db_repos = None
-db_cacus = None

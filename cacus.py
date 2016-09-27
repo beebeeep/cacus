@@ -5,6 +5,17 @@ import sys
 import argparse
 
 import logging
+import traceback
+
+# TODO feel free to PR if you know how to log tracebacks in more elegant way
+# atm it for some reason doubles traceback string
+class MyLogger(logging.getLoggerClass()):
+    def error(self, msg, *args, **kwargs):
+        if sys.exc_info()[0]:
+            msg += "\n{}".format(traceback.format_exc())
+        return super(MyLogger, self).error(msg, *args, **kwargs)
+
+logging.setLoggerClass(MyLogger)
 
 import common
 import repo_manage

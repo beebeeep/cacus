@@ -51,7 +51,32 @@ class CachedRequestHandler(RequestHandler):
             raise gen.Return((True, latest_dt))
 
 
-class PackagesHandler(CachedRequestHandler):
+class StorageHandler(RequestHandler):
+
+    def on_connection_close(self):
+        self.dead = True
+    @gen.coroutine
+    def stream_from_storage(self, key=None):
+        self.dead = False
+        stream = common.ProxyStream(self)
+        self.set_header('Content-Type', 'application/octet-stream')
+        # TODO last-modified, content-length and other metadata _should_ be provided! 
+        try: 
+            result = yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
+        except common.NotFound:
+            app_log.error("Key %s was not found at storage", key)
+            self.set_status(404)
+        except common.FatalError as e:
+            self.set_status(500)
+            app_log.error("Got error from storage plugin: %s", e)
+        self.finish()
+
+    @gen.coroutine
+    def get(self, key):
+        yield self.stream_from_storage(key)
+
+
+class PackagesHandler(CachedRequestHandler, StorageHandler):
 
     @gen.coroutine
     def get(self, distro=None, env=None, arch=None):
@@ -248,26 +273,6 @@ class ApiSearchHandler(RequestHandler):
         self.write(result)
 
 
-class StorageHandler(RequestHandler):
-
-    def on_connection_close(self):
-        self.dead = True
-
-    @gen.coroutine
-    def get(self, key=None):
-        self.dead = False
-        stream = common.ProxyStream(self)
-        self.set_header('Content-Type', 'application/octet-stream')
-        # TODO last-modified, content-length and other metadata _should_ be provided! 
-        result = yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
-        if result.status == 'NOT_FOUND':
-            self.set_status(404)
-        if result.status == 'ERROR':
-            self.set_status(500)
-            app_log.error("Got error from storage plugin: %s", result.msg)
-        self.finish()
-
-
 def make_app():
     s = common.config['repo_daemon']
 
@@ -282,7 +287,7 @@ def make_app():
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
     storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
-    print storage_re
+
 
     return Application([
         url(packages_re, PackagesHandler),
