@@ -89,6 +89,7 @@ class AzureStorage(plugins.IStoragePlugin):
         while True:
             try:
                 chunk = self.storage._get_blob(self.container, key, start_range=chunk_start, end_range=chunk_end)
+                log.debug("Writing %s bytes from %s", len(chunk.content), chunk_start)
                 stream.write(chunk.content)
             except IOError:
                 # remote side closed connection
@@ -106,3 +107,4 @@ class AzureStorage(plugins.IStoragePlugin):
             else:
                 chunk_start = chunk_end + 1
                 chunk_end += chunk_size
+        return 0

@@ -55,19 +55,20 @@ class StorageHandler(RequestHandler):
 
     def on_connection_close(self):
         self.dead = True
+
     @gen.coroutine
-    def stream_from_storage(self, key=None):
+    def stream_from_storage(self, key=None, headers=[]):
         self.dead = False
-        stream = common.ProxyStream(self)
+        stream = common.ProxyStream(self, headers=headers)
         self.set_header('Content-Type', 'application/octet-stream')
         # TODO last-modified, content-length and other metadata _should_ be provided! 
         try: 
-            result = yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
+            yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
         except common.NotFound:
-            app_log.error("Key %s was not found at storage", key)
             self.set_status(404)
+            app_log.error("Key %s was not found at storage", key)
         except common.FatalError as e:
-            self.set_status(500)
+            #self.set_status(500)
             app_log.error("Got error from storage plugin: %s", e)
         self.finish()
 
@@ -95,12 +96,16 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
         doc = yield db.cacus.repos.find_one({'distro': distro, 'environment': env, 'architecture': arch})
         if doc:
             s = common.config['repo_daemon']
-            url = os.path.join(s['repo_base'], doc['packages_file'])
-            # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
-            # user to offload cacus' StorageHandler if current storage allows it
-            app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, env, arch, url)
-            self.add_header("X-Accel-Redirect", url)
-            self.set_status(200)
+            if s['proxy_storage']:
+                headers = [ ('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt)) ]
+                yield self.stream_from_storage(doc['packages_file'], headers=headers)
+            else:
+                # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
+                # user to offload cacus' StorageHandler if current storage allows it
+                url = os.path.join(s['repo_base'], s['storage_subdir'], doc['packages_file'])
+                app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, env, arch, url)
+                self.add_header("X-Accel-Redirect", url)
+                self.set_status(200)
         else:
             self.set_status(404)
 

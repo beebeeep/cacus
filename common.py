@@ -14,6 +14,7 @@ from pyme import core
 from pyme.constants.sig import mode
 from threading import Event
 from itertools import chain, repeat
+from tornado.ioloop import IOLoop
 
 
 config = None
@@ -186,16 +187,29 @@ class ProxyStream(object):
     """ stream-like object for streaming result of blocking function to
         client of Tornado server
     """
-    def __init__(self, handler):
+    def __init__(self, handler, headers=[]):
         self._handler = handler
+        self._headers = headers
+        self._headers_set = False
+
+    def sync_write(self, data, event):
+        self._handler.write(data)
+        self._handler.flush(callback=lambda: event.set())
     
     def write(self, data):
         if not self._handler.dead:
-            self._handler.write(data)
+            if not self._headers_set:
+                # send headers once we got first chunk of data (i.e storage is responding and found requested key)
+                for header in self._headers:
+                    self._handler.set_header(*header)
+                self._headers_set = True
+
             event = Event()
-            self._handler.flush(callback=lambda: event.set())
+            # write() and sync() should be called from thread where ioloop is running
+            # so schedule write & flush for next iteration
+            IOLoop.current().add_callback(self.sync_write, data, event)
             event.wait()
-            return len(data)
+            return 0 #len(data)
         else:
             raise IOError("Client has closed connection")
 

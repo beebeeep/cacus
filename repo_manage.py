@@ -44,7 +44,7 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
 
         log.info("Uploading %s to distro '%s' environment '%s'", base_key, distro, env)
         storage_key = plugin_loader.get_plugin('storage').put(base_key, filename=file)
-        storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
+        #storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
         meta['environment'] = env
         meta['Source'] = changes['source']
@@ -136,7 +136,7 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
             # our storage engine supports updating of keys
             base_key = "{}/{}/{}/Packages_{}".format(distro, env, arch, md5.hexdigest())
             storage_key = plugin_loader.get_plugin('storage').put(base_key, file=packages)
-            storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
+            #storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
             old_repo = common.db_cacus.repos.find_and_modify(
                     query={'distro': distro, 'environment': env, 'architecture': arch},
@@ -211,7 +211,7 @@ def generate_packages_file(distro, env, arch):
                 elif k == 'sha512':
                     string = "SHA512: {0}\n".format(hexlify(v))
                 elif k == 'storage_key':
-                    string = "Filename: {0}\n".format(v)
+                    string = "Filename: {0}\n".format(os.path.join(common.config['repo_daemon']['storage_subdir'],v))
                 else:
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)

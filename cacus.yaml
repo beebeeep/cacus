@@ -28,6 +28,7 @@ repo_daemon:
     port: 1488
     repo_base: '/debian'
     storage_subdir: 'storage'
+    proxy_storage: true
 
 duploader_daemon:
     gpg_check: false
