@@ -111,17 +111,21 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
 
 
 class SourcesHandler(CachedRequestHandler):
+    """ Returns Sources repo indice
+    Generating on the fly as it's rarely used so no point to slow down 
+    metadata update by pre-generating and storing this file
+    """
 
     @gen.coroutine
     def get(self, distro=None, env=None):
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired(distros, {'distro': distro})
+        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'environment': env})
         if not expired:
             self.set_status(304)
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        cursor = db.repos[distro].find({'environment': env, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
+        cursor = db.packages[distro].find({'environment': env, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             for k, v in pkg['dsc'].iteritems():
@@ -129,12 +133,13 @@ class SourcesHandler(CachedRequestHandler):
                     self.write(u"Package: {0}\n".format(v))
                 else:
                     self.write(u"{0}: {1}\n".format(k.capitalize(), v))
-            self.write(u"Directory: {0}/source\n".format(env))
-            files = filter(lambda x: x['name'].endswith('.tar.gz') or x['name'].endswith('.dsc'), pkg['sources'])
+            self.write(u"Directory: storage\n")
+            # c-c-c-c-combo!
+            files = [x for x in pkg['sources'] if reduce(lambda a,n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
 
             def gen_para(algo, files):
                 for f in files:
-                    self.write(u" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['name']))
+                    self.write(u" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']))
 
             self.write(u"Files: \n")
             gen_para('md5', files)

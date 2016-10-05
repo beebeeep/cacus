@@ -21,6 +21,10 @@ import common
 log = logging.getLogger('cacus.duploader')
 
 
+################################### TODO #############################
+# 1. unlink files after some time to allow debrelease/dupload/dput to do their job
+#######################################################################
+
 class EventHandler(pyinotify.ProcessEvent):
 
     def __init__(self, distro=None):

@@ -121,6 +121,7 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
             md5 = hashlib.md5()
             sha1 = hashlib.sha1()
             sha256 = hashlib.sha256()
+
             packages = generate_packages_file(distro, env, arch)
             size = packages.tell()
             md5.update(packages.getvalue())
