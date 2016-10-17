@@ -99,11 +99,12 @@ class EventHandler(pyinotify.ProcessEvent):
         except ChangeFile.ChangeFileException as e:
             self.log.error("Checksum verification failed: %s", e)
         else:
-            # all new packages are going to unstable
-            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', environment 'unstable'",
+            # TODO set default component / add per-component upload dirs
+            # for now all new packages are going to component 'unstable'
+            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', component 'unstable'",
                           changes['source'], changes['version'], self.distro)
             try:
-                common.with_retries(repo_manage.upload_package, self.distro, 'unstable', incoming_files, changes=changes)
+                common.with_retries(repo_manage.upload_package, self.distro, 'unstable', incoming_files, changes=changes, forceUpdateMeta=True)
             except Exception as e:
                 self.log.error("Error while uploading file: %s", e)
 

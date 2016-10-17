@@ -80,10 +80,10 @@ class StorageHandler(RequestHandler):
 class PackagesHandler(CachedRequestHandler, StorageHandler):
 
     @gen.coroutine
-    def get(self, distro=None, env=None, arch=None):
+    def get(self, distro=None, comp=None, arch=None):
 
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'environment': env, 'architecture': arch})
+        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'component': comp, 'architecture': arch})
         if not expired:
             self.set_status(304)
             return
@@ -93,7 +93,7 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
         self.add_header('Last-Modified', httputil.format_timestamp(dt))
         self.set_header('Content-Type', 'application/octet-stream')
 
-        doc = yield db.cacus.repos.find_one({'distro': distro, 'environment': env, 'architecture': arch})
+        doc = yield db.cacus.repos.find_one({'distro': distro, 'component': comp, 'architecture': arch})
         if doc:
             s = common.config['repo_daemon']
             if s['proxy_storage']:
@@ -103,7 +103,7 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
                 # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
                 # user to offload cacus' StorageHandler if current storage allows it
                 url = os.path.join(s['repo_base'], s['storage_subdir'], doc['packages_file'])
-                app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, env, arch, url)
+                app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, comp, arch, url)
                 self.add_header("X-Accel-Redirect", url)
                 self.set_status(200)
         else:
@@ -117,15 +117,15 @@ class SourcesHandler(CachedRequestHandler):
     """
 
     @gen.coroutine
-    def get(self, distro=None, env=None):
+    def get(self, distro=None, comp=None):
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'environment': env})
+        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'component': comp})
         if not expired:
             self.set_status(304)
             return
         self.add_header("Last-Modified", httputil.format_timestamp(dt))
 
-        cursor = db.packages[distro].find({'environment': env, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
+        cursor = db.packages[distro].find({'component': comp, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             for k, v in pkg['dsc'].iteritems():
@@ -154,9 +154,9 @@ class SourcesHandler(CachedRequestHandler):
 class SourcesFilesHandler(CachedRequestHandler):
 
     @gen.coroutine
-    def get(self, distro=None, env=None, file=None):
+    def get(self, distro=None, comp=None, file=None):
         db = self.settings['db']
-        doc = yield db.repos[distro].find_one({'environment': env, 'sources.name': file},
+        doc = yield db.repos[distro].find_one({'component': comp, 'sources.name': file},
                                             {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
@@ -239,7 +239,7 @@ class ApiSearchHandler(RequestHandler):
         db = self.settings['db']
         pkg = self.get_argument('pkg', '')
         ver = self.get_argument('ver', '')
-        env = self.get_argument('env', '')
+        comp = self.get_argument('comp', '')
         descr = self.get_argument('descr', '')
         lang = self.get_argument('lang', '')
 
@@ -248,8 +248,8 @@ class ApiSearchHandler(RequestHandler):
             selector['Source'] = {'$regex': pkg}
         if ver:
             selector['Version'] = {'$regex': ver}
-        if env:
-            selector['environment'] = env
+        if comp:
+            selector['component'] = comp
         if descr:
             if lang:
                 selector['$text'] = {'$search': descr, '$language': lang}
@@ -258,7 +258,7 @@ class ApiSearchHandler(RequestHandler):
         projection = {
             '_id': 0,
             'Source': 1,
-            'environment': 1,
+            'component': 1,
             'Version': 1,
             'debs.maintainer': 1,
             'debs.Architecture': 1,
@@ -288,9 +288,9 @@ def make_app():
 
     # using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
     release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/Release(?P<gpg>\.gpg)?$"
-    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/binary-(?P<arch>\w+)/Packages$"
-    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/Sources$"
-    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<env>\w+)/source/(?P<file>.*)$"
+    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/source/Sources$"
+    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
 
     api_dmove_re = s['repo_base'] + r"/api/v1/dmove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_search_re = s['repo_base'] + r"/api/v1/search/(?P<distro>[-_.A-Za-z0-9]+)$"

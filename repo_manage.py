@@ -25,7 +25,7 @@ class UpdateRepoMetadataError(Exception):
     pass
 
 
-def upload_package(distro, env, files, changes, skipUpdateMeta=False):
+def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpdateMeta=False):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
     meta = {}
@@ -35,18 +35,18 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
         base_key = "{0}/pool/{1}".format(distro, filename)
 
         p = common.db_packages[distro].find_one({'Source': changes['source'], 'Version': changes['version']})
-        if p:
-            log.warning("%s is already uploaded to distro '%s', environment '%s'", base_key, distro, p['environment'])
+        if p and not forceUpdateMeta:
+            log.warning("%s is already uploaded to distro '%s', component '%s'", base_key, distro, p['component'])
             continue
 
         with open(file) as f:
             hashes = common.get_hashes(f)
 
-        log.info("Uploading %s to distro '%s' environment '%s'", base_key, distro, env)
+        log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
         storage_key = plugin_loader.get_plugin('storage').put(base_key, filename=file)
         #storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
-        meta['environment'] = env
+        meta['component'] = comp
         meta['Source'] = changes['source']
         meta['Version'] = changes['version']
 
@@ -97,53 +97,53 @@ def upload_package(distro, env, files, changes, skipUpdateMeta=False):
     if affected_arches:
         # critical section. updating meta DB
         try:
-            with common.RepoLock(distro, env):
+            with common.RepoLock(distro, comp):
                 common.db_packages[distro].insert(meta)
                 if not skipUpdateMeta:
-                    log.info("Updating '%s/%s' distro metadata for arches: %s", distro, env, ', '.join(affected_arches))
-                    update_distro_metadata(distro, [env], affected_arches)
+                    log.info("Updating '%s/%s' distro metadata for arches: %s", distro, comp, ', '.join(affected_arches))
+                    update_distro_metadata(distro, [comp], affected_arches, force=forceUpdateMeta)
         except common.RepoLockTimeout as e:
             log.error("Error updating distro: %s", e)
             raise common.TemporaryError("Cannot lock distro: {0}".format(e))
     else:
-        log.info("No changes made on distro %s/%s, skipping metadata update", distro, env)
+        log.info("No changes made on distro %s/%s, skipping metadata update", distro, comp)
 
 
-def update_distro_metadata(distro, envs=None, arches=None, force=False):
+def update_distro_metadata(distro, comps=None, arches=None, force=False):
     now = datetime.utcnow()
-    if not envs:
-        envs = common.db_cacus.repos.find({'distro': distro}).distinct('environment')
+    if not comps:
+        comps = common.db_cacus.repos.find({'distro': distro}).distinct('component')
     if not arches:
         arches = common.db_cacus.repos.find({'distro': distro}).distinct('architecture')
-    # update all Packages files of specified architectures in specified environments
-    for env in envs:
+    # update all Packages files of specified architectures in specified components
+    for comp in comps:
         for arch in arches:
             md5 = hashlib.md5()
             sha1 = hashlib.sha1()
             sha256 = hashlib.sha256()
 
-            packages = generate_packages_file(distro, env, arch)
+            packages = generate_packages_file(distro, comp, arch)
             size = packages.tell()
             md5.update(packages.getvalue())
             sha1.update(packages.getvalue())
             sha256.update(packages.getvalue())
 
-            old_repo = common.db_cacus.repos.find_one({'distro': distro, 'environment': env, 'architecture': arch}, {'packages_file': 1})
+            old_repo = common.db_cacus.repos.find_one({'distro': distro, 'component': comp, 'architecture': arch}, {'packages_file': 1})
             if not force and old_repo and 'packages_file' in old_repo and md5.hexdigest() in old_repo['packages_file']:
-                log.warn("Packages file for %s/%s/%s not changed, skipping update", distro, env, arch)
+                log.warn("Packages file for %s/%s/%s not changed, skipping update", distro, comp, arch)
                 continue
 
             # we hold Packages under unique filename as far as we don't want to make assumptions whether 
             # our storage engine supports updating of keys
-            base_key = "{}/{}/{}/Packages_{}".format(distro, env, arch, md5.hexdigest())
+            base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, md5.hexdigest())
             storage_key = plugin_loader.get_plugin('storage').put(base_key, file=packages)
             #storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
             old_repo = common.db_cacus.repos.find_and_modify(
-                    query={'distro': distro, 'environment': env, 'architecture': arch},
+                    query={'distro': distro, 'component': comp, 'architecture': arch},
                     update={'$set': {
                         'distro': distro,
-                        'environment': env,
+                        'component': comp,
                         'architecture': arch,
                         'md5': binary.Binary(md5.digest()),
                         'sha1': binary.Binary(sha1.digest()),
@@ -163,23 +163,29 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
                 except common.NotFound:
                     log.warning("Cannot find old Packages file")
 
-    # now create Release file for whole distro (aka "distribution" for Debian folks) including all envs and arches
+    # now create Release file for whole distro (aka "distribution" for Debian folks) including all comps and arches
     pkg_files = list(common.db_cacus.repos.find({'distro': distro}))
     release = u""
     release += u"Origin: {}\n".format(distro)
     release += u"Label: {}\n".format(distro)
-    release += u"Suite: {}\n".format(env)
+    release += u"Suite: {}\n".format(comp)
     release += u"Codename: {}\n".format(distro)
     release += u"Date: {}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
     release += u"Architectures: {}\n".format(' '.join(x['architecture'] for x in pkg_files))
     release += u"Description: {}\n".format(common.config['duploader_daemon']['distributions'][distro]['description'])
-    for file in pkg_files:
-        release += u"MD5Sum:\n"
-        release += u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['md5']), file['size'], file['environment'], file['architecture'])
-        release += u"SHA1:\n"
-        release += u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['sha1']), file['size'], file['environment'], file['architecture'])
-        release += u"SHA256:\n"
-        release += u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['sha256']), file['size'], file['environment'], file['architecture'])
+
+    release += u"MD5Sum:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
+            for file in pkg_files)
+    release += u"SHA1:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
+            for file in pkg_files)
+    release += u"SHA256:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
+            for file in pkg_files)
 
     ### TODO Sources file ####
 
@@ -197,9 +203,9 @@ def update_distro_metadata(distro, envs=None, arches=None, force=False):
             upsert=True)
 
 
-def generate_packages_file(distro, env, arch):
+def generate_packages_file(distro, comp, arch):
     data = common.myStringIO()
-    distro = common.db_packages[distro].find({'environment': env, 'debs.Architecture': arch})
+    distro = common.db_packages[distro].find({'component': comp, 'debs.Architecture': arch})
     for pkg in distro:
         for deb in pkg['debs']:
             for k, v in deb.iteritems():
@@ -220,23 +226,23 @@ def generate_packages_file(distro, env, arch):
     return data
 
 
-def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
+def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False, forceUpdateMeta=False):
     try:
         with common.RepoLock(common.db_cacus.locks, distro, src):
             with common.RepoLock(common.db_cacus.locks, distro, dst):
                 result = common.db_packages[distro].find_and_modify(
-                    query={'Source': pkg, 'Version': ver, 'environment': {'$in': [src, dst]}},
-                    update={'$set': {'environment': dst}},
-                    fields={'debs.Architecture': 1, 'environment': 1},
+                    query={'Source': pkg, 'Version': ver, 'component': {'$in': [src, dst]}},
+                    update={'$set': {'component': dst}},
+                    fields={'debs.Architecture': 1, 'component': 1},
                     upsert=False,
                     new=False
                 )
                 if not result:
-                    msg = "Cannot find package '{}_{}' in distro '{}' at env {}".format(pkg, ver, distro, src)
+                    msg = "Cannot find package '{}_{}' in distro '{}' at comp {}".format(pkg, ver, distro, src)
                     log.error(msg)
                     raise common.NotFound(msg)
-                elif result['environment'] == dst:
-                    msg = "Package '{}_{}' is already in distro '{}' at env {}".format(pkg, ver, distro, src)
+                elif result['component'] == dst:
+                    msg = "Package '{}_{}' is already in distro '{}' at comp {}".format(pkg, ver, distro, src)
                     log.warning(msg)
                     return msg
 
@@ -249,9 +255,9 @@ def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpda
                 for arch in affected_arches:
                     if not skipUpdateMeta:
                         log.info("Updating '%s/%s/%s' distro metadata", distro, src, arch)
-                        update_distro_metadata(distro, src, arch)
+                        update_distro_metadata(distro, src, arch, force=forceUpdateMeta)
                         log.info("Updating '%s/%s/%s' distro metadata", distro, dst, arch)
-                        update_distro_metadata(distro, dst, arch)
+                        update_distro_metadata(distro, dst, arch, force=forceUpdateMeta)
                 return msg
     except common.RepoLockTimeout as e:
         raise common.TemporaryError(e)
