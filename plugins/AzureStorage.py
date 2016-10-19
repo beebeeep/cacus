@@ -75,7 +75,7 @@ class AzureStorage(plugins.IStoragePlugin):
                 file.seek(old_pos)
         except Exception as e:
             # TODO: more detailed error inspection
-            log.critical("Error uploading to %s/%s: %s", self.storage.storage_account, self.container, e)
+            log.critical("Error uploading to %s/%s: %s", self.storage.account_name, self.container, e)
             raise common.FatalError(e)
         return storage_key
 

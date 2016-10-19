@@ -12,7 +12,7 @@ import traceback
 class MyLogger(logging.getLoggerClass()):
     def error(self, msg, *args, **kwargs):
         if sys.exc_info()[0]:
-            msg += "\n{}".format(traceback.format_exc())
+            msg += "\n{}".format(traceback.format_exc().replace('%', '%%'))
         return super(MyLogger, self).error(msg, *args, **kwargs)
 
 logging.setLoggerClass(MyLogger)

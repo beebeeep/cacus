@@ -162,30 +162,81 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
                     plugin_loader.get_plugin('storage').delete(old_key)
                 except common.NotFound:
                     log.warning("Cannot find old Packages file")
+        # now update all Sources indices for each component
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+        sources = generate_sources_file(distro, comp)
+        size = sources.tell()
+        md5.update(sources.getvalue())
+        sha1.update(sources.getvalue())
+        sha256.update(sources.getvalue())
+        
+        old_sources = common.db_cacus.components.find_one({'disro': distro, 'component': comp}, {'sources_file': 1})
+        if not force and old_sources and md5.hexdigest() in old_sources.get('packages_file', ''):
+            log.warn("Sources file for %s/%s not changed, skipping update", distro, comp)
+            continue
+        base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
+        storage_key = plugin_loader.get_plugin('storage').put(base_key, file=sources)
+
+        old_component = common.db_cacus.components.find_and_modify(
+                query={'distro': distro, 'component': comp},
+                update={'$set': {
+                    'distro': distro,
+                    'component': comp,
+                    'md5': binary.Binary(md5.digest()),
+                    'sha1': binary.Binary(sha1.digest()),
+                    'sha256': binary.Binary(sha256.digest()),
+                    'size': size,
+                    'sources_file': storage_key,
+                    'lastupdated': now
+                    }},
+                new=False,
+                upsert=True)
+        if not force and old_component and 'sources_file' in old_component:
+            old_key = old_repo['sources_file']
+            log.debug("Removing old Sources file %s", old_key)
+            try:
+                plugin_loader.get_plugin('storage').delete(old_key)
+            except common.NotFound:
+                log.warning("Cannot find old Packages file")
+
 
     # now create Release file for whole distro (aka "distribution" for Debian folks) including all comps and arches
-    pkg_files = list(common.db_cacus.repos.find({'distro': distro}))
+    packages = list(common.db_cacus.repos.find({'distro': distro}))
+    sources = list(common.db_cacus.components.find({'distro': distro}))
     release = u""
     release += u"Origin: {}\n".format(distro)
     release += u"Label: {}\n".format(distro)
     release += u"Suite: {}\n".format(comp)
     release += u"Codename: {}\n".format(distro)
     release += u"Date: {}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
-    release += u"Architectures: {}\n".format(' '.join(x['architecture'] for x in pkg_files))
+    release += u"Architectures: {}\n".format(' '.join(x['architecture'] for x in packages))
+    release += u"Components: {}\n".format(' '.join(x['component'] for x in sources))
     release += u"Description: {}\n".format(common.config['duploader_daemon']['distributions'][distro]['description'])
 
     release += u"MD5Sum:\n"
     release += "\n".join(
-            u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
-            for file in pkg_files)
-    release += u"SHA1:\n"
+            u" {} {} {}/binary-{}/Packages".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
+            for file in packages)
     release += "\n".join(
-            u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
-            for file in pkg_files)
-    release += u"SHA256:\n"
+            u" {} {} {}/source/Sources".format(hexlify(file['md5']), file['size'], file['component'])
+            for file in sources)
+    release += u"\nSHA1:\n"
     release += "\n".join(
-            u" {} {} {}/binary-{}/Packages\n".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
-            for file in pkg_files)
+            u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
+            for file in packages)
+    release += "\n".join(
+            u" {} {} {}/source/Sources".format(hexlify(file['sha1']), file['size'], file['component'])
+            for file in sources)
+    release += u"\nSHA256:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
+            for file in packages)
+    release += "\n".join(
+            u" {} {} {}/source/Sources".format(hexlify(file['sha256']), file['size'], file['component'])
+            for file in sources)
+    release += u"\n"
 
     ### TODO Sources file ####
 
@@ -202,6 +253,32 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
                 }},
             upsert=True)
 
+def generate_sources_file(distro, comp):
+    data = common.myStringIO()
+    component = common.db_packages[distro].find({'component': comp, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
+    for pkg in component:
+        for k, v in pkg['dsc'].iteritems():
+            if k == 'Source':
+                data.write("Package: {0}\n".format(v))
+            else:
+                data.write("{0}: {1}\n".format(k.capitalize(), v))
+        data.write("Directory: storage\n")
+        # c-c-c-c-combo!
+        files = [x for x in pkg['sources'] if reduce(lambda a,n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
+
+        def gen_para(algo, files):
+            for f in files:
+                data.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']))
+
+        data.write("Files: \n")
+        gen_para('md5', files)
+        data.write("Checksums-Sha1: \n")
+        gen_para('sha1', files)
+        data.write("Checksums-Sha256: \n")
+        gen_para('sha256', files)
+
+        data.write("\n")
+    return data
 
 def generate_packages_file(distro, comp, arch):
     data = common.myStringIO()

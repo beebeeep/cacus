@@ -110,7 +110,7 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
             self.set_status(404)
 
 
-class SourcesHandler(CachedRequestHandler):
+class SourcesHandler(CachedRequestHandler, StorageHandler):
     """ Returns Sources repo indice
     Generating on the fly as it's rarely used so no point to slow down 
     metadata update by pre-generating and storing this file
@@ -118,37 +118,33 @@ class SourcesHandler(CachedRequestHandler):
 
     @gen.coroutine
     def get(self, distro=None, comp=None):
+
         db = self.settings['db']
-        (expired, dt) = yield self._cache_expired('repos', {'distro': distro, 'component': comp})
+        (expired, dt) = yield self._cache_expired('components', {'distro': distro, 'component': comp})
         if not expired:
             self.set_status(304)
             return
-        self.add_header("Last-Modified", httputil.format_timestamp(dt))
+        if not dt:
+            self.set_status(404)
+            return
+        self.add_header('Last-Modified', httputil.format_timestamp(dt))
+        self.set_header('Content-Type', 'application/octet-stream')
 
-        cursor = db.packages[distro].find({'component': comp, 'dsc': {'$exists': True}}, {'dsc': 1, 'sources': 1})
-        while (yield cursor.fetch_next):
-            pkg = cursor.next_object()
-            for k, v in pkg['dsc'].iteritems():
-                if k == 'Source':
-                    self.write(u"Package: {0}\n".format(v))
-                else:
-                    self.write(u"{0}: {1}\n".format(k.capitalize(), v))
-            self.write(u"Directory: storage\n")
-            # c-c-c-c-combo!
-            files = [x for x in pkg['sources'] if reduce(lambda a,n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
-
-            def gen_para(algo, files):
-                for f in files:
-                    self.write(u" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']))
-
-            self.write(u"Files: \n")
-            gen_para('md5', files)
-            self.write(u"Checksums-Sha1: \n")
-            gen_para('sha1', files)
-            self.write(u"Checksums-Sha256: \n")
-            gen_para('sha256', files)
-
-            self.write(u"\n")
+        doc = yield db.cacus.components.find_one({'distro': distro, 'component': comp})
+        if doc:
+            s = common.config['repo_daemon']
+            if s['proxy_storage']:
+                headers = [ ('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt)) ]
+                yield self.stream_from_storage(doc['sources_file'], headers=headers)
+            else:
+                # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
+                # user to offload cacus' StorageHandler if current storage allows it
+                url = os.path.join(s['repo_base'], s['storage_subdir'], doc['sources_file'])
+                app_log.info("Redirecting %s/%s/source/Sources to %s", distro, comp, arch, url)
+                self.add_header("X-Accel-Redirect", url)
+                self.set_status(200)
+        else:
+            self.set_status(404)
 
 
 class SourcesFilesHandler(CachedRequestHandler):

@@ -5,11 +5,11 @@ Distributed, fault-tolerant and fast Debian repository with REST API and pluggab
 
 Idea:
 -----
-A common use case for internal (and some public) debian repos is to store packages in several environments (for example, unstable -> testing -> stable) and move them as they getting stabilized. Cacus encourages this approach by own design and features, although it's not mandatory. 
+Managing the huge and highloaded (for read and write) debian repo can be a tricky job - existing solutions like reprepro could be slow in refreshing repo indices and barely suitable for horizontal scaling. 
 
-Moreover, cacus is designed for high-load and high-availability environments, relying on MongoDB and various storage engines and can be easily installed and used on multiple instances behind any kind of load balancing. 
+Cacus is designed as scalable, high-load and high-availability debian repo fully compatible with official Debian repository layout, relying on MongoDB and various pluggable cloud storage engines and can be easily installed and used on multiple instances behind any kind of load balancing. 
 
-Also, besides CLI interface cacus features handy REST API that can be used to integrate it with CI systems.
+Moreover, Cacus features REST API that can be used to integrate it with CI/CD systems
 
 Installation:
 -----------
@@ -30,6 +30,7 @@ Debian packages:
 
 Also you will need MongoDB running somewhere, and storage:
 - Dummy local file storage - ready to use
+- Azure Blob Storage - ready to use
 - Elliptics (http://reverbrain.com/elliptics/) - planned
 - Amazon S3 (https://aws.amazon.com/s3/) - planned
 - Ceph (http://ceph.com) - planned

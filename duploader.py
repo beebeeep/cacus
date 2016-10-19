@@ -105,6 +105,7 @@ class EventHandler(pyinotify.ProcessEvent):
                           changes['source'], changes['version'], self.distro)
             try:
                 common.with_retries(repo_manage.upload_package, self.distro, 'unstable', incoming_files, changes=changes, forceUpdateMeta=True)
+                self.log.warn("OK")
             except Exception as e:
                 self.log.error("Error while uploading file: %s", e)
 
