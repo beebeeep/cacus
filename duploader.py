@@ -27,9 +27,11 @@ log = logging.getLogger('cacus.duploader')
 
 class EventHandler(pyinotify.ProcessEvent):
 
-    def __init__(self, distro=None):
-        self.distro = distro
-        self.log = logging.getLogger('cacus.duploader.{0}'.format(distro))
+    def __init__(self, settings):
+        self.distro = settings['distro']
+        self.gpg_check = settings.get('gpg_check', True)
+        self.incoming_wait_timeout = settings.get('incoming_wait_timeout', 5)
+        self.log = logging.getLogger('cacus.duploader.{0}'.format(self.distro))
         self.uploaded_files = set()
         self.uploaded_files_lock = threading.Lock()
         self.uploaded_event = threading.Event()
@@ -55,7 +57,7 @@ class EventHandler(pyinotify.ProcessEvent):
         changes.load_from_file(event.pathname)
         changes.filename = event.pathname
 
-        if common.config['duploader_daemon']['gpg_check']:
+        if self.gpg_check:
             try:
                 signer = self._gpgCheck(changes.filename)
             except errors.GPGMEError as e:
@@ -86,7 +88,7 @@ class EventHandler(pyinotify.ProcessEvent):
                     break
                 else:
                     self.log.debug("Could not find %s, waiting...", filename)
-                    r = self.uploaded_event.wait(common.config['duploader_daemon']['incoming_wait_timeout'])
+                    r = self.uploaded_event.wait(self.incoming_wait_timeout)
                     if not r:
                         # we don't get all files from .changes in time, clean up and exit
                         # TODO: add to rejected
@@ -130,10 +132,30 @@ def handle_files(notifier):
 
 
 def start_duploader():
-    for distro, param in common.config['duploader_daemon']['distributions'].iteritems():
-        handler = EventHandler(distro=distro)
-        wm = pyinotify.WatchManager()
-        notifier = pyinotify.ThreadedNotifier(wm, handler)
-        wdd = wm.add_watch(param['incoming_dir'], pyinotify.ALL_EVENTS)
-        log.info("Starting notifier for distribution '%s' at %s", distro, param['incoming_dir'])
-        notifier.start()
+    watchers = {}
+    while True:
+        new_watchers = list(common.db_cacus.distros.find())
+        for watcher in new_watchers:
+            if watcher['distro'] not in watchers:
+                incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])
+                try:
+                    if not os.path.isdir(incoming_dir):
+                        log.debug("Creating incoming dir '%s'", incoming_dir)
+                        os.mkdir(incoming_dir)
+                except Exception as e:
+                    log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
+                    continue
+                handler = EventHandler(watcher)
+                wm = pyinotify.WatchManager()
+                notifier = pyinotify.ThreadedNotifier(wm, handler)
+                wdd = wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
+                log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
+                notifier.start()
+                watchers[watcher['distro']] = notifier
+        abandoned = set(watchers.keys()) - set(x['distro'] for x in new_watchers)
+        for watcher in abandoned:
+            log.info("Removing notifier for distribution '%s'", watcher)
+            watchers[watcher].stop()
+            del(watchers[watcher])
+        time.sleep(5)
+

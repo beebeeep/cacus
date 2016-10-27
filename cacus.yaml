@@ -32,12 +32,7 @@ repo_daemon:
 
 duploader_daemon:
     gpg_check: false
-    incoming_wait_timeout: 3
-    distributions:
-        common:
-            incoming_dir: /srv/test-repo/incoming/common
-            description: Do not forget description
-    
+    incoming_root: /srv/test-repo/incoming/
 
 # make sure daemon is started under correct GPG environment 
 # to find all trusted and signing keys (see gpg(1) for more info)

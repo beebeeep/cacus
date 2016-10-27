@@ -205,6 +205,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     # now create Release file for whole distro (aka "distribution" for Debian folks) including all comps and arches
     packages = list(common.db_cacus.repos.find({'distro': distro}))
     sources = list(common.db_cacus.components.find({'distro': distro}))
+    distro_settings = common.db_cacus.distros.find_one({'distro': distro})
     release = u""
     release += u"Origin: {}\n".format(distro)
     release += u"Label: {}\n".format(distro)
@@ -213,7 +214,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     release += u"Date: {}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
     release += u"Architectures: {}\n".format(' '.join(x['architecture'] for x in packages))
     release += u"Components: {}\n".format(' '.join(x['component'] for x in sources))
-    release += u"Description: {}\n".format(common.config['duploader_daemon']['distributions'][distro]['description'])
+    release += u"Description: {}\n".format(distro_settings.get('description', 'Do not forget the description'))
 
     release += u"MD5Sum:\n"
     release += "\n".join(

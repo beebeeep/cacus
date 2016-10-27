@@ -3,14 +3,15 @@
 
 
 from tornado.ioloop import IOLoop
-from tornado.web import RequestHandler, Application, url, asynchronous
-from tornado import gen, httputil, httpserver
+from tornado.web import RequestHandler, Application, url, asynchronous, MissingArgumentError, Finish
+from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import motor
 from binascii import hexlify
 import email.utils
 import time
+import json
 import re
 import os
 
@@ -49,6 +50,31 @@ class CachedRequestHandler(RequestHandler):
             raise gen.Return((False, latest_dt))
         else:
             raise gen.Return((True, latest_dt))
+
+class JsonRequestHandler(RequestHandler):
+    
+    def _get_json_request(self):
+        if 'application/json' not in self.request.headers.get('Content-type', '').lower():
+            self.set_status(400)
+            self.write({'success': False, 'msg': 'application/json Content-type expected'})
+            raise Finish()
+        try:
+            app_log.debug("body '%s'",  self.request.body)
+            req = json.loads(escape.to_unicode(self.request.body))
+        except Exception as e:
+            self.set_status(400)
+            self.write({'success': False, 'msg': 'invalid JSON: {}'.format(e)})
+            raise Finish()
+
+        class JsonRequestData(dict):
+            def __getitem__(self, key):
+                try: 
+                    return dict.__getitem__(self, key)
+                except KeyError:
+                    app_log.error("Missing required argument %s", key)
+                    raise MissingArgumentError(key)
+
+        return JsonRequestData(req)
 
 
 class StorageHandler(RequestHandler):
@@ -183,6 +209,26 @@ class ReleaseHandler(CachedRequestHandler):
             self.write(doc['release_file'])
 
 
+class ApiCreateDistroHandler(JsonRequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        req = self._get_json_request()
+        gpg_check = req['gpg_check']
+        strict = req['strict']
+        description = req['description']
+        incoming_wait_timeout = req['incoming_timeout']
+        r = yield self.settings['db'].cacus.distros.find_and_modify(
+                query={'distro': distro},
+                update={'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+                upsert=True)
+        self.set_status(201)
+        if not r:
+            self.write({'success': True, 'msg': 'repo created'})
+        else:
+            self.write({'success': True, 'msg': 'repo settings updated'})
+
+
 class ApiDmoveHandler(RequestHandler):
 
     @gen.coroutine
@@ -291,6 +337,7 @@ def make_app():
     api_dmove_re = s['repo_base'] + r"/api/v1/dmove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_search_re = s['repo_base'] + r"/api/v1/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_create_distro_re = s['repo_base'] + r"/api/v1/create-distro/(?P<distro>[-_.A-Za-z0-9]+)$"
 
     storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
 
@@ -303,6 +350,7 @@ def make_app():
         url(api_dmove_re, ApiDmoveHandler),
         url(api_search_re, ApiSearchHandler),
         url(api_dist_push_re, ApiDistPushHandler),
+        url(api_create_distro_re, ApiCreateDistroHandler),
         url(storage_re, StorageHandler),
         ])
 
