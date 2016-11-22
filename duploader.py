@@ -127,10 +127,6 @@ class EventHandler(pyinotify.ProcessEvent):
             self.uploaded_event.clear()
 
 
-def handle_files(notifier):
-    pass
-
-
 def start_duploader():
     watchers = {}
     while True:
@@ -152,6 +148,7 @@ def start_duploader():
                 log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
                 notifier.start()
                 watchers[watcher['distro']] = notifier
+
         abandoned = set(watchers.keys()) - set(x['distro'] for x in new_watchers)
         for watcher in abandoned:
             log.info("Removing notifier for distribution '%s'", watcher)

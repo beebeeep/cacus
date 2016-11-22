@@ -98,7 +98,10 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         # critical section. updating meta DB
         try:
             with common.RepoLock(distro, comp):
-                common.db_packages[distro].insert(meta)
+                common.db_packages[distro].find_and_modify(
+                        query={'Source': meta['Source'], 'Version': meta['Version']},
+                        update={'$set': meta},
+                        upsert=True)
                 if not skipUpdateMeta:
                     log.info("Updating '%s/%s' distro metadata for arches: %s", distro, comp, ', '.join(affected_arches))
                     update_distro_metadata(distro, [comp], affected_arches, force=forceUpdateMeta)
@@ -219,21 +222,21 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     release += u"MD5Sum:\n"
     release += "\n".join(
             u" {} {} {}/binary-{}/Packages".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
-            for file in packages)
+            for file in packages) + u"\n"
     release += "\n".join(
             u" {} {} {}/source/Sources".format(hexlify(file['md5']), file['size'], file['component'])
             for file in sources)
     release += u"\nSHA1:\n"
     release += "\n".join(
             u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
-            for file in packages)
+            for file in packages) + u"\n"
     release += "\n".join(
             u" {} {} {}/source/Sources".format(hexlify(file['sha1']), file['size'], file['component'])
             for file in sources)
     release += u"\nSHA256:\n"
     release += "\n".join(
             u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
-            for file in packages)
+            for file in packages) + u"\n"
     release += "\n".join(
             u" {} {} {}/source/Sources".format(hexlify(file['sha256']), file['size'], file['component'])
             for file in sources)
@@ -285,7 +288,7 @@ def generate_packages_file(distro, comp, arch):
     data = common.myStringIO()
     distro = common.db_packages[distro].find({'component': comp, 'debs.Architecture': arch})
     for pkg in distro:
-        for deb in pkg['debs']:
+        for deb in (x for x in pkg['debs'] if x['Architecture'] == arch):
             for k, v in deb.iteritems():
                 if k == 'md5':
                     string = "MD5sum: {0}\n".format(hexlify(v))
@@ -306,8 +309,8 @@ def generate_packages_file(distro, comp, arch):
 
 def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False, forceUpdateMeta=False):
     try:
-        with common.RepoLock(common.db_cacus.locks, distro, src):
-            with common.RepoLock(common.db_cacus.locks, distro, dst):
+        with common.RepoLock(distro, src):
+            with common.RepoLock(distro, dst):
                 result = common.db_packages[distro].find_and_modify(
                     query={'Source': pkg, 'Version': ver, 'component': {'$in': [src, dst]}},
                     update={'$set': {'component': dst}},
