@@ -229,22 +229,25 @@ class ApiCreateDistroHandler(JsonRequestHandler):
             self.write({'success': True, 'msg': 'repo settings updated'})
 
 
-class ApiDmoveHandler(RequestHandler):
+class ApiDmoveHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
-        pkg = self.get_argument('pkg')
-        ver = self.get_argument('ver')
-        src = self.get_argument('from')
-        dst = self.get_argument('to')
-        r = yield self.settings['workers'].submit(repo_manage.dmove_package,
-                                                  distro=distro, pkg=pkg, ver=ver, src=src, dst=dst)
-        if r.ok:
-            self.write({'success': True, 'msg': r.msg})
-        elif r.status == 'NOT_FOUND':
+        req = self._get_json_request()
+        pkg = req['pkg']
+        ver = req['ver']
+        src = req['from']
+        dst = req['to']
+
+        try:
+            r = yield self.settings['workers'].submit(repo_manage.dmove_package,
+                                                      distro=distro, pkg=pkg, ver=ver, src=src, dst=dst)
+            self.write({'success': True, 'msg': r})
+        except common.NotFound:
             self.set_status(404)
             self.write({'success': False, 'msg': r.msg})
-        elif r.status == 'TIMEOUT':
+        except common.TemporaryError:
+            # TODO retries
             # timeout on dmove can only if we cannot lock the distro,
             # i.e. there is some other operation processing current distro
             self.set_status(409)

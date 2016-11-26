@@ -83,6 +83,7 @@ class AzureStorage(plugins.IStoragePlugin):
     def get(self, key, stream):
         # current azure python sdk barely can work with non-seekable streams,
         # so we have to implement chunking by our own
+        # TODO: process zero-length blobs
         chunk_size = 4*1024*1024
         chunk_start = 0
         chunk_end = chunk_size - 1

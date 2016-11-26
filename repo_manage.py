@@ -197,7 +197,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
                 new=False,
                 upsert=True)
         if not force and old_component and 'sources_file' in old_component:
-            old_key = old_repo['sources_file']
+            old_key = old_component['sources_file']
             log.debug("Removing old Sources file %s", old_key)
             try:
                 plugin_loader.get_plugin('storage').delete(old_key)
@@ -330,15 +330,10 @@ def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpda
                 msg = "Package '{}_{}' was dmoved in distro '{}' from {} to {}".format(pkg, ver, distro, src, dst)
                 log.info(msg)
 
-                affected_arches = set()
-                for d in result['debs']:
-                    affected_arches.add(d['Architecture'])
-                for arch in affected_arches:
-                    if not skipUpdateMeta:
-                        log.info("Updating '%s/%s/%s' distro metadata", distro, src, arch)
-                        update_distro_metadata(distro, src, arch, force=forceUpdateMeta)
-                        log.info("Updating '%s/%s/%s' distro metadata", distro, dst, arch)
-                        update_distro_metadata(distro, dst, arch, force=forceUpdateMeta)
+                if not skipUpdateMeta:
+                    affected_arches = set(x['Architecture'] for x in result['debs'])
+                    log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, ', '.join(affected_arches))
+                    update_distro_metadata(distro, [src, dst], affected_arches, force=forceUpdateMeta)
                 return msg
     except common.RepoLockTimeout as e:
         raise common.TemporaryError(e)
