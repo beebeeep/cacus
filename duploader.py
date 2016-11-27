@@ -25,11 +25,23 @@ log = logging.getLogger('cacus.duploader')
 # 1. unlink files after some time to allow debrelease/dupload/dput to do their job
 #######################################################################
 
+def _process_singe_deb(pause, distro, component, file):
+    time.sleep(pause)
+
+    if os.path.isfile(file):
+        try:
+            common.with_retries(repo_manage.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
+        except Exception as e:
+            self.log.error("Error while uploading DEB %s: %s", file, e)
+        os.unlink(file)
+
+
 class EventHandler(pyinotify.ProcessEvent):
 
     def __init__(self, settings):
         self.distro = settings['distro']
         self.gpg_check = settings.get('gpg_check', True)
+        self.strict = settings.get('strict', True)
         self.incoming_wait_timeout = settings.get('incoming_wait_timeout', 5)
         self.log = logging.getLogger('cacus.duploader.{0}'.format(self.distro))
         self.uploaded_files = set()
@@ -125,6 +137,10 @@ class EventHandler(pyinotify.ProcessEvent):
             self.uploaded_files.add(event.pathname)
             self.uploaded_event.set()
             self.uploaded_event.clear()
+
+        # if repo is not strict, single .deb file could be uploaded to repo,
+        # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
+        worker = threading.Thread(target=_process_singe_deb, args=(2*self.incoming_wait_timeout, self.distro, 'unstable', event.pathname))
 
 
 def start_duploader():

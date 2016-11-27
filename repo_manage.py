@@ -34,11 +34,6 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         filename = os.path.basename(file)
         base_key = "{0}/pool/{1}".format(distro, filename)
 
-        p = common.db_packages[distro].find_one({'Source': changes['source'], 'Version': changes['version']})
-        if p and not forceUpdateMeta:
-            log.warning("%s is already uploaded to distro '%s', component '%s'", base_key, distro, p['component'])
-            continue
-
         with open(file) as f:
             hashes = common.get_hashes(f)
 
@@ -282,6 +277,8 @@ def generate_sources_file(distro, comp):
         gen_para('sha256', files)
 
         data.write("\n")
+    # to prevent generating of empty file
+    data.write("\n")
     return data
 
 def generate_packages_file(distro, comp, arch):
@@ -304,10 +301,12 @@ def generate_packages_file(distro, comp, arch):
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)
             data.write("\n")
+    # to prevent generating of empty file
+    data.write("\n")
     return data
 
 
-def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False, forceUpdateMeta=False):
+def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
     try:
         with common.RepoLock(distro, src):
             with common.RepoLock(distro, dst):
@@ -333,7 +332,7 @@ def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpda
                 if not skipUpdateMeta:
                     affected_arches = set(x['Architecture'] for x in result['debs'])
                     log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, ', '.join(affected_arches))
-                    update_distro_metadata(distro, [src, dst], affected_arches, force=forceUpdateMeta)
+                    update_distro_metadata(distro, [src, dst], affected_arches)
                 return msg
     except common.RepoLockTimeout as e:
         raise common.TemporaryError(e)
