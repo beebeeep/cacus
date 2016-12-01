@@ -209,7 +209,21 @@ class ReleaseHandler(CachedRequestHandler):
             self.write(doc['release_file'])
 
 
+class ApiReindexDistroHandler(JsonRequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        try:
+            yield self.settings['workers'].submit(repo_manage.update_distro_metadata, distro=distro, force=True)
+        except common.NotFound as e:
+            self.set_status(404)
+            self.write({'success': False, 'msg': e.message})
+            return
+        self.write({'success': True, 'msg': 'Reindex complete'})
+
+
 class ApiCreateDistroHandler(JsonRequestHandler):
+    # TODO: update settings? 
 
     @gen.coroutine
     def post(self, distro):
@@ -341,6 +355,7 @@ def make_app():
     api_search_re = s['repo_base'] + r"/api/v1/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_create_distro_re = s['repo_base'] + r"/api/v1/create-distro/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_reindex_distro_re = s['repo_base'] + r"/api/v1/reindex-distro/(?P<distro>[-_.A-Za-z0-9]+)$"
 
     storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
 
@@ -354,6 +369,7 @@ def make_app():
         url(api_search_re, ApiSearchHandler),
         url(api_dist_push_re, ApiDistPushHandler),
         url(api_create_distro_re, ApiCreateDistroHandler),
+        url(api_reindex_distro_re, ApiReindexDistroHandler),
         url(storage_re, StorageHandler),
         ])
 

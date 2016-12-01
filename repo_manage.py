@@ -25,6 +25,53 @@ class UpdateRepoMetadataError(Exception):
     pass
 
 
+def _process_deb_file(file, storage_key):
+    with open(file) as f:
+        hashes = common.get_hashes(f)
+
+    doc = {
+        'size': os.stat(file)[stat.ST_SIZE],
+        'sha512': binary.Binary(hashes['sha512']),
+        'sha256': binary.Binary(hashes['sha256']),
+        'sha1': binary.Binary(hashes['sha1']),
+        'md5': binary.Binary(hashes['md5']),
+        'storage_key': storage_key
+        }
+
+    try:
+        deb = debfile.DebFile(file)
+    except debfile.DebError as e:
+        log.critical("Cannot load debfile %s: %s", file, e)
+        raise common.FatalError("Cannot load debfile {0}: {1}".format(file, e))
+    doc.update(deb.debcontrol())
+
+    return doc
+
+
+def _process_source_file(file, storage_key):
+    with open(file) as f:
+        hashes = common.get_hashes(f)
+
+    filename = os.path.basename(file)
+    dsc = None
+
+    doc = {
+            'name': filename,
+            'size': os.stat(file)[stat.ST_SIZE],
+            'sha512': binary.Binary(hashes['sha512']),
+            'sha256': binary.Binary(hashes['sha256']),
+            'sha1': binary.Binary(hashes['sha1']),
+            'md5': binary.Binary(hashes['md5']),
+            'storage_key': storage_key
+            }
+    if file.endswith('.dsc'):
+        with open(file) as f:
+            dsc = deb822.Dsc(f)
+            dsc = dict((k,v) for k,v in dsc.items() if not k.startswith('Checksums-') and k != 'Files')
+    
+    return doc, dsc
+
+
 def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpdateMeta=False):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
@@ -41,54 +88,31 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         storage_key = plugin_loader.get_plugin('storage').put(base_key, filename=file)
         #storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
-        meta['component'] = comp
-        meta['Source'] = changes['source']
-        meta['Version'] = changes['version']
-
         if file.endswith('.deb') or file.endswith('.udeb'):
             if 'debs' not in meta:
                 meta['debs'] = []
 
-            doc = {
-                'size': os.stat(file)[stat.ST_SIZE],
-                'sha512': binary.Binary(hashes['sha512']),
-                'sha256': binary.Binary(hashes['sha256']),
-                'sha1': binary.Binary(hashes['sha1']),
-                'md5': binary.Binary(hashes['md5']),
-                'storage_key': storage_key
-                }
-            try:
-                deb = debfile.DebFile(file)
-            except debfile.DebError as e:
-                log.critical("Cannot load debfile %s: %s", file, e)
-                raise common.FatalError("Cannot load debfile {0}: {1}".format(file, e))
-
-            affected_arches.add(deb.debcontrol()['Architecture'])
-            for k, v in deb.debcontrol().iteritems():
-                doc[k] = v
-            meta['debs'].append(doc)
-
+            deb = _process_deb_file(file, storage_key)
+            meta['debs'].append(deb)
         else:
             if 'sources' not in meta:
                 meta['sources'] = []
+            source,dsc = _process_source_file(file, storage_key)
+            meta['sources'].append(source)
+            if dsc:
+                meta['dsc'] = dsc
+         
+        meta['component'] = comp
+        if changes:
+            meta['Source'] = changes['source']
+            meta['Version'] = changes['version']
+        else:
+            # if changes file is not present (i.e. we are uploading single deb file in non-strict repo),
+            # take package name and version from 1st (which also should be last) deb file
+            meta['Source'] = meta['debs'][0]['Package']
+            meta['Version'] = meta['debs'][0]['Version']
 
-            meta['sources'].append({
-                'name': filename,
-                'size': os.stat(file)[stat.ST_SIZE],
-                'sha512': binary.Binary(hashes['sha512']),
-                'sha256': binary.Binary(hashes['sha256']),
-                'sha1': binary.Binary(hashes['sha1']),
-                'md5': binary.Binary(hashes['md5']),
-                'storage_key': storage_key
-                })
-
-            if file.endswith('.dsc'):
-                meta['dsc'] = {}
-                with open(file) as f:
-                    dsc = deb822.Dsc(f)
-                    for k, v in dsc.iteritems():
-                        if not k.startswith('Checksums-') and k != 'Files':
-                            meta['dsc'][k] = v
+    affected_arches.update(x['Architecture'] for x in meta['debs'])
     if affected_arches:
         # critical section. updating meta DB
         try:
@@ -113,6 +137,10 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
         comps = common.db_cacus.repos.find({'distro': distro}).distinct('component')
     if not arches:
         arches = common.db_cacus.repos.find({'distro': distro}).distinct('architecture')
+
+    if not comps or not arches:
+        raise common.NotFound("Distro {} is not found or empty".format(distro))
+
     # update all Packages files of specified architectures in specified components
     for comp in comps:
         for arch in arches:
@@ -204,13 +232,17 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     packages = list(common.db_cacus.repos.find({'distro': distro}))
     sources = list(common.db_cacus.components.find({'distro': distro}))
     distro_settings = common.db_cacus.distros.find_one({'distro': distro})
+
+    # see https://wiki.debian.org/RepositoryFormat#Architectures - all arch goes with other arhes' indice and shall not be listed in Release
+    arches = set(x['architecture'] for x in packages if x['architecture'] != 'all')
+
     release = u""
     release += u"Origin: {}\n".format(distro)
     release += u"Label: {}\n".format(distro)
-    release += u"Suite: {}\n".format(comp)
+    release += u"Suite: {}\n".format(distro_settings.get('suite', 'unknown'))
     release += u"Codename: {}\n".format(distro)
     release += u"Date: {}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
-    release += u"Architectures: {}\n".format(' '.join(x['architecture'] for x in packages))
+    release += u"Architectures: {}\n".format(' '.join(arches))
     release += u"Components: {}\n".format(' '.join(x['component'] for x in sources))
     release += u"Description: {}\n".format(distro_settings.get('description', 'Do not forget the description'))
 
@@ -285,7 +317,8 @@ def generate_packages_file(distro, comp, arch):
     data = common.myStringIO()
     distro = common.db_packages[distro].find({'component': comp, 'debs.Architecture': arch})
     for pkg in distro:
-        for deb in (x for x in pkg['debs'] if x['Architecture'] == arch):
+        # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
+        for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
             for k, v in deb.iteritems():
                 if k == 'md5':
                     string = "MD5sum: {0}\n".format(hexlify(v))

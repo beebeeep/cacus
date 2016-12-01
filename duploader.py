@@ -25,15 +25,6 @@ log = logging.getLogger('cacus.duploader')
 # 1. unlink files after some time to allow debrelease/dupload/dput to do their job
 #######################################################################
 
-def _process_singe_deb(pause, distro, component, file):
-    time.sleep(pause)
-
-    if os.path.isfile(file):
-        try:
-            common.with_retries(repo_manage.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
-        except Exception as e:
-            self.log.error("Error while uploading DEB %s: %s", file, e)
-        os.unlink(file)
 
 
 class EventHandler(pyinotify.ProcessEvent):
@@ -60,6 +51,21 @@ class EventHandler(pyinotify.ProcessEvent):
         if result.signatures[0].status != 0:
             raise Exception("File signed with untrusted key {0} ({1})".format(signer_key, signer))
         return signer
+
+    def _process_singe_deb(self, distro, component, file):
+        if os.path.isfile(file) and file in self.uploaded_files:
+            # if file is still exists and wasn't picked by some _processChangesFile(), 
+            # assume that it was meant to be uploaded as signle package
+            with self.uploaded_files_lock:
+                self.uploaded_files.remove(file)
+            self.log.debug("Uploading %s to %s/%s", file, distro, component)
+            try:
+                common.with_retries(repo_manage.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
+            except Exception as e:
+                self.log.error("Error while uploading DEB %s: %s", file, e)
+            os.unlink(file)
+        else:
+            self.log.debug("Hm, strange, I was supposed to upload %s, but it's missing now", file)
 
     def _processChangesFile(self, event):
         self.log.info("Processing .changes file %s", event.pathname)
@@ -140,7 +146,10 @@ class EventHandler(pyinotify.ProcessEvent):
 
         # if repo is not strict, single .deb file could be uploaded to repo,
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
-        worker = threading.Thread(target=_process_singe_deb, args=(2*self.incoming_wait_timeout, self.distro, 'unstable', event.pathname))
+        if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
+            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_singe_deb, args=(self.distro, 'unstable', event.pathname))
+            uploader.daemon = True
+            uploader.start()
 
 
 def start_duploader():
