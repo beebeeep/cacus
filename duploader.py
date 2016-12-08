@@ -64,7 +64,7 @@ class EventHandler(pyinotify.ProcessEvent):
             except Exception as e:
                 self.log.error("Error while uploading DEB %s: %s", file, e)
             os.unlink(file)
-        else:
+        elif file in self.uploaded_files:
             self.log.debug("Hm, strange, I was supposed to upload %s, but it's missing now", file)
 
     def _processChangesFile(self, event):
@@ -101,6 +101,7 @@ class EventHandler(pyinotify.ProcessEvent):
                 if filename in self.uploaded_files:
                     # eeeh, we're under GIL, yea? do we really need to take a lock here?
                     with self.uploaded_files_lock:
+                        self.log.debug("Taking %s for processing", filename)
                         self.uploaded_files.remove(filename)
                     incoming_files.append(filename)
                     break

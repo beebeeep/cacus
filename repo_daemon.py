@@ -223,7 +223,6 @@ class ApiReindexDistroHandler(JsonRequestHandler):
 
 
 class ApiCreateDistroHandler(JsonRequestHandler):
-    # TODO: update settings? 
 
     @gen.coroutine
     def post(self, distro):
@@ -236,10 +235,11 @@ class ApiCreateDistroHandler(JsonRequestHandler):
                 query={'distro': distro},
                 update={'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
                 upsert=True)
-        self.set_status(201)
         if not r:
+            self.set_status(201)
             self.write({'success': True, 'msg': 'repo created'})
         else:
+            self.set_status(200)
             self.write({'success': True, 'msg': 'repo settings updated'})
 
 

@@ -18,7 +18,7 @@ from tornado.ioloop import IOLoop
 
 
 config = None
-db_repos = None
+db_packages = None
 db_cacus = None
 
 
