@@ -13,6 +13,7 @@ import plugin_loader
 import common
 import dist_importer
 from dist_importer import ImportException
+from pymongo.collection import ReturnDocument
 
 log = logging.getLogger('cacus.repo_manage')
 
@@ -164,9 +165,9 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
             storage_key = plugin_loader.get_plugin('storage').put(base_key, file=packages)
             #storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
-            old_repo = common.db_cacus.repos.find_and_modify(
-                    query={'distro': distro, 'component': comp, 'architecture': arch},
-                    update={'$set': {
+            old_repo = common.db_cacus.repos.find_one_and_update(
+                    {'distro': distro, 'component': comp, 'architecture': arch},
+                    {'$set': {
                         'distro': distro,
                         'component': comp,
                         'architecture': arch,
@@ -177,7 +178,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
                         'packages_file': storage_key,
                         'lastupdated': now
                         }},
-                    new=False,
+                    return_document=ReturnDocument.BEFORE,
                     upsert=True)
             if not force and old_repo and 'packages_file' in old_repo:
                 old_key = old_repo['packages_file']
@@ -204,9 +205,9 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
         base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
         storage_key = plugin_loader.get_plugin('storage').put(base_key, file=sources)
 
-        old_component = common.db_cacus.components.find_and_modify(
-                query={'distro': distro, 'component': comp},
-                update={'$set': {
+        old_component = common.db_cacus.components.find_one_and_update(
+                {'distro': distro, 'component': comp},
+                {'$set': {
                     'distro': distro,
                     'component': comp,
                     'md5': binary.Binary(md5.digest()),
@@ -216,7 +217,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
                     'sources_file': storage_key,
                     'lastupdated': now
                     }},
-                new=False,
+                return_document=ReturnDocument.BEFORE,
                 upsert=True)
         if not force and old_component and 'sources_file' in old_component:
             old_key = old_component['sources_file']
@@ -273,9 +274,9 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     release_gpg = common.gpg_sign(release.encode('utf-8'), common.config['gpg']['signer'])
 
     # Release file and its digest is small enough to put directly into metabase
-    common.db_cacus.distros.find_and_modify(
-            query={'distro': distro},
-            update={'$set': {
+    common.db_cacus.distros.find_one_and_update(
+            {'distro': distro},
+            {'$set': {
                 'distro': distro,
                 'lastupdated': now,
                 'release_file': release,

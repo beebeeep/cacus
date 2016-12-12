@@ -225,11 +225,12 @@ class RepoLock:
         self.log.debug("Trying to lock %s/%s", self.repo, self.env)
         while True:
             try:
-                db_cacus.locks.find_and_modify(
-                    query={'repo': self.repo, 'env': self.env, 'locked': 0},
-                    update={
+                db_cacus.locks.find_one_and_update(
+                    {'repo': self.repo, 'env': self.env, 'locked': 0},
+                    {
                         '$set': {'repo': self.repo, 'env': self.env, 'locked': 1},
-                        '$currentDate': {'modified': {'$type': 'date'}}},
+                        '$currentDate': {'modified': {'$type': 'date'}}
+                    },
                     upsert=True)
                 self.log.debug("%s/%s locked", self.repo, self.env)
                 break
@@ -244,11 +245,12 @@ class RepoLock:
 
     def __exit__(self, exc_type, exc_value, traceback):
         try:
-            db_cacus.locks.find_and_modify(
-                query={'repo': self.repo, 'env': self.env, 'locked': 1},
-                update={
+            db_cacus.locks.find_one_and_update(
+                {'repo': self.repo, 'env': self.env, 'locked': 1},
+                {
                     '$set': {'repo': self.repo, 'env': self.env, 'locked': 0},
-                    '$currentDate': {'modified': {'$type': 'date'}}},
+                    '$currentDate': {'modified': {'$type': 'date'}}
+                },
                 upsert=True)
             self.log.debug("%s/%s unlocked", self.repo, self.env)
         except pymongo.errors.DuplicateKeyError:

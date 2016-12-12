@@ -231,9 +231,9 @@ class ApiCreateDistroHandler(JsonRequestHandler):
         strict = req['strict']
         description = req['description']
         incoming_wait_timeout = req['incoming_timeout']
-        r = yield self.settings['db'].cacus.distros.find_and_modify(
-                query={'distro': distro},
-                update={'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+        r = yield self.settings['db'].cacus.distros.find_one_and_update(
+                {'distro': distro},
+                {'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
                 upsert=True)
         if not r:
             self.set_status(201)

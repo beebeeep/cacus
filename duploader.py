@@ -52,7 +52,7 @@ class EventHandler(pyinotify.ProcessEvent):
             raise Exception("File signed with untrusted key {0} ({1})".format(signer_key, signer))
         return signer
 
-    def _process_singe_deb(self, distro, component, file):
+    def _process_single_deb(self, distro, component, file):
         if os.path.isfile(file) and file in self.uploaded_files:
             # if file is still exists and wasn't picked by some _processChangesFile(), 
             # assume that it was meant to be uploaded as signle package
@@ -148,7 +148,7 @@ class EventHandler(pyinotify.ProcessEvent):
         # if repo is not strict, single .deb file could be uploaded to repo,
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
         if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
-            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_singe_deb, args=(self.distro, 'unstable', event.pathname))
+            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(self.distro, 'unstable', event.pathname))
             uploader.daemon = True
             uploader.start()
 
