@@ -338,26 +338,52 @@ def generate_packages_file(distro, comp, arch):
     data.write("\n")
     return data
 
+def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=False):
+    try:
+        with common.RepoLock(distro, comp):
+            result = common.db_packages.packages.find_one_and_update(
+                {'Source': pkg, 'Version': ver, 'repos': {'distro': distro, 'component': comp}},
+                {'$pullAll': {'repos': [{'distro': distro, 'component': comp}]}},
+                projection={'debs.Architecture': 1, 'component': 1},
+                upsert=False,
+                return_document=ReturnDocument.BEFORE
+            )
+            if not result:
+                msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, comp)
+                log.error(msg)
+                raise common.NotFound(msg)
+            else:
+                msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
+                log.info(msg)
+                if not skipUpdateMeta:
+                    affected_arches = set(x['Architecture'] for x in result['debs'])
+                    log.info("Updating '%s' distro metadata for component %s, arches: %s", distro, comp, ', '.join(affected_arches))
+                    update_distro_metadata(distro, [comp], affected_arches)
+                return msg
+    except common.RepoLockTimeout as e:
+        raise common.TemporaryError(e.message)
 
-def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
+def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
     try:
         with common.RepoLock(distro, src):
             with common.RepoLock(distro, dst):
                 result = common.db_packages.packages.find_one_and_update(
                     {'Source': pkg, 'Version': ver, 'repos': {'distro': distro, 'component': src}},
-                    {'$addToSet': {'repos': {'$each': {distro, dst}}}},
-                    {'projection': {'debs.Architecture': 1, 'component': 1}, 'upsert': False, 'returnNewDocument': False}
+                    {'$addToSet': {'repos': {'$each': [{'distro': distro, 'component': dst}]}}},
+                    projection={'repos': 1, 'debs.Architecture': 1, 'component': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
                 )
                 if not result:
-                    msg = "Cannot find package '{}_{}' in distro '{}' at comp {}".format(pkg, ver, distro, src)
+                    msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
                     log.error(msg)
                     raise common.NotFound(msg)
                 elif dst in [x['component'] for x in result['repos']]:
-                    msg = "Package '{}_{}' is already in distro '{}' at comp {}".format(pkg, ver, distro, src)
+                    msg = "Package '{}_{}' is already in '{}/{}'".format(pkg, ver, distro, src)
                     log.warning(msg)
                     return msg
 
-                msg = "Package '{}_{}' was dmoved in distro '{}' from {} to {}".format(pkg, ver, distro, src, dst)
+                msg = "Package '{}_{}' was copied in distro '{}' from '{}' to '{}'".format(pkg, ver, distro, src, dst)
                 log.info(msg)
 
                 if not skipUpdateMeta:
@@ -366,7 +392,7 @@ def dmove_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpda
                     update_distro_metadata(distro, [src, dst], affected_arches)
                 return msg
     except common.RepoLockTimeout as e:
-        raise common.TemporaryError(e)
+        raise common.TemporaryError(e.message)
 
 """
 def dist_push(distro=None, changes=None):

@@ -50,7 +50,7 @@ def import_package(changefile=None, repo=None, env='unstable'):
             if p['environment'] != env:
                 log.warning("Dmoving %s_%s in repo '%s' from '%s' to '%s'",
                             changes['source'], changes['version'], repo, p['environment'], env)
-                repo_manage.dmove_package(pkg=changes['source'], ver=changes['version'], repo=repo,
+                repo_manage.copy_package(pkg=changes['source'], ver=changes['version'], repo=repo,
                                           src=p['environment'], dst=env, skipUpdateMeta=True)
             return None
         else:
