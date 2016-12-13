@@ -72,6 +72,53 @@ def _process_source_file(file, storage_key):
     
     return doc, dsc
 
+def _create_release(distro, snapshot=None, ts=None):
+
+    packages = list(common.db_cacus.repos.find({'distro': distro}))
+    sources = list(common.db_cacus.components.find({'distro': distro}))
+    distro_settings = common.db_cacus.distros.find_one({'distro': distro})
+    label = "{}/{}".format(distro, snapshot) if snapshot else distro
+    now = ts if ts else datetime.utcnow()
+
+    # see https://wiki.debian.org/RepositoryFormat#Architectures - all arch goes with other arhes' indice and shall not be listed in Release
+    arches = set(x['architecture'] for x in packages if x['architecture'] != 'all')
+
+    release = u""
+    release += u"Origin: {}\n".format(distro)
+    release += u"Label: {}\n".format(label)
+    release += u"Suite: {}\n".format(distro_settings.get('suite', 'unknown'))
+    release += u"Codename: {}\n".format(distro)
+    release += u"Date: {}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
+    release += u"Architectures: {}\n".format(' '.join(arches))
+    release += u"Components: {}\n".format(' '.join(x['component'] for x in sources))
+    release += u"Description: {}\n".format(distro_settings.get('description', 'Do not forget the description'))
+
+    release += u"MD5Sum:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
+            for file in packages) + u"\n"
+    release += "\n".join(
+            u" {} {} {}/source/Sources".format(hexlify(file['md5']), file['size'], file['component'])
+            for file in sources)
+    release += u"\nSHA1:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
+            for file in packages) + u"\n"
+    release += "\n".join(
+            u" {} {} {}/source/Sources".format(hexlify(file['sha1']), file['size'], file['component'])
+            for file in sources)
+    release += u"\nSHA256:\n"
+    release += "\n".join(
+            u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
+            for file in packages) + u"\n"
+    release += "\n".join(
+            u" {} {} {}/source/Sources".format(hexlify(file['sha256']), file['size'], file['component'])
+            for file in sources)
+    release += u"\n"
+
+    release_gpg = common.gpg_sign(release.encode('utf-8'), common.config['gpg']['signer'])
+
+    return release, release_gpg
 
 def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpdateMeta=False):
     # files is array of files of .deb, .dsc, .tar.gz and .changes
@@ -229,49 +276,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
 
 
     # now create Release file for whole distro (aka "distribution" for Debian folks) including all comps and arches
-    packages = list(common.db_cacus.repos.find({'distro': distro}))
-    sources = list(common.db_cacus.components.find({'distro': distro}))
-    distro_settings = common.db_cacus.distros.find_one({'distro': distro})
-
-    # see https://wiki.debian.org/RepositoryFormat#Architectures - all arch goes with other arhes' indice and shall not be listed in Release
-    arches = set(x['architecture'] for x in packages if x['architecture'] != 'all')
-
-    release = u""
-    release += u"Origin: {}\n".format(distro)
-    release += u"Label: {}\n".format(distro)
-    release += u"Suite: {}\n".format(distro_settings.get('suite', 'unknown'))
-    release += u"Codename: {}\n".format(distro)
-    release += u"Date: {}\n".format(now.strftime("%a, %d %b %Y %H:%M:%S +0000"))
-    release += u"Architectures: {}\n".format(' '.join(arches))
-    release += u"Components: {}\n".format(' '.join(x['component'] for x in sources))
-    release += u"Description: {}\n".format(distro_settings.get('description', 'Do not forget the description'))
-
-    release += u"MD5Sum:\n"
-    release += "\n".join(
-            u" {} {} {}/binary-{}/Packages".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
-            for file in packages) + u"\n"
-    release += "\n".join(
-            u" {} {} {}/source/Sources".format(hexlify(file['md5']), file['size'], file['component'])
-            for file in sources)
-    release += u"\nSHA1:\n"
-    release += "\n".join(
-            u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
-            for file in packages) + u"\n"
-    release += "\n".join(
-            u" {} {} {}/source/Sources".format(hexlify(file['sha1']), file['size'], file['component'])
-            for file in sources)
-    release += u"\nSHA256:\n"
-    release += "\n".join(
-            u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
-            for file in packages) + u"\n"
-    release += "\n".join(
-            u" {} {} {}/source/Sources".format(hexlify(file['sha256']), file['size'], file['component'])
-            for file in sources)
-    release += u"\n"
-
-    ### TODO Sources file ####
-
-    release_gpg = common.gpg_sign(release.encode('utf-8'), common.config['gpg']['signer'])
+    release, release_gpg = _create_release(distro, ts=now)
 
     # Release file and its digest is small enough to put directly into metabase
     common.db_cacus.distros.find_one_and_update(
@@ -393,6 +398,16 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
                 return msg
     except common.RepoLockTimeout as e:
         raise common.TemporaryError(e.message)
+
+def snapshot_distro(distro, name):
+    """ Creates distribution snapshot distro -> distro/name 
+    Important note about implementation: as far as distro snapshot meant to be lightweight and
+    cheap to create, snapshotting is implemented by just copying existing APT indices (Packages, Sources etc) -
+    i.e. snapshot will be read-only by design (which is good) and packages database won't store 
+    any information about whether current package in included in some snapshot or not (which is bad because
+    we won't be able to determine whether this package is orphaned and can be deleted from storage).
+    """
+    return "ok"
 
 """
 def dist_push(distro=None, changes=None):

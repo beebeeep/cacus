@@ -209,7 +209,7 @@ class ReleaseHandler(CachedRequestHandler):
             self.write(doc['release_file'])
 
 
-class ApiReindexDistroHandler(JsonRequestHandler):
+class ApiDistroReindexHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
@@ -222,7 +222,28 @@ class ApiReindexDistroHandler(JsonRequestHandler):
         self.write({'success': True, 'msg': 'Reindex complete'})
 
 
-class ApiCreateDistroHandler(JsonRequestHandler):
+class ApiDistroSnapshotHandler(JsonRequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        req = self._get_json_request()
+        name = req['name']
+        try:
+            msg = yield self.settings['workers'].submit(repo_manage.snapshot_distro, distro=distro, name=name)
+        except common.NotFound as e:
+            self.set_status(404)
+            self.write({'success': False, 'msg': e.message})
+            return
+        except common.TemporaryError as e:
+            # TODO retries
+            # timeout raised only if we cannot lock the distro,
+            # i.e. there is some other operation processing current distro
+            self.set_status(409)
+            self.write({'success': False, 'msg': e.message})
+        self.write({'success': True, 'msg': msg})
+
+
+class ApiDistroCreateHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
@@ -243,7 +264,7 @@ class ApiCreateDistroHandler(JsonRequestHandler):
             self.write({'success': True, 'msg': 'repo settings updated'})
 
 
-class ApiCopyHandler(JsonRequestHandler):
+class ApiPkgCopyHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
@@ -268,7 +289,7 @@ class ApiCopyHandler(JsonRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
-class ApiRemoveHandler(JsonRequestHandler):
+class ApiPkgRemoveHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
@@ -314,7 +335,7 @@ class ApiDistPushHandler(RequestHandler):
             self.write({'success': False, 'msg': r.msg})
 
 
-class ApiSearchHandler(RequestHandler):
+class ApiPkgSearchHandler(RequestHandler):
 
     @gen.coroutine
     def get(self, distro=None):
@@ -368,20 +389,26 @@ class ApiSearchHandler(RequestHandler):
 def make_app():
     s = common.config['repo_daemon']
 
-    # using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
+    # APT interface. Using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
     release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/Release(?P<gpg>\.gpg)?$"
     packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
     sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/source/Sources$"
     sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
-
-    api_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_create_distro_re = s['repo_base'] + r"/api/v1/create-distro/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_reindex_distro_re = s['repo_base'] + r"/api/v1/reindex-distro/(?P<distro>[-_.A-Za-z0-9]+)$"
-
     storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
+
+    # REST API
+    ## Package operations
+    api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
+    ## Distribution operations
+    api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9]+)$"
+
+    ## Misc/unknown/obsolete
+    api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
+
 
 
     return Application([
@@ -389,13 +416,14 @@ def make_app():
         url(release_re, ReleaseHandler),
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler),
-        url(api_copy_re, ApiCopyHandler),
-        url(api_remove_re, ApiRemoveHandler),
-        url(api_search_re, ApiSearchHandler),
-        url(api_dist_push_re, ApiDistPushHandler),
-        url(api_create_distro_re, ApiCreateDistroHandler),
-        url(api_reindex_distro_re, ApiReindexDistroHandler),
         url(storage_re, StorageHandler),
+        url(api_pkg_copy_re, ApiPkgCopyHandler),
+        url(api_pkg_remove_re, ApiPkgRemoveHandler),
+        url(api_pkg_search_re, ApiPkgSearchHandler),
+        url(api_distro_create_re, ApiDistroCreateHandler),
+        url(api_distro_reindex_re, ApiDistroReindexHandler),
+        url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
+        url(api_dist_push_re, ApiDistPushHandler),
         ])
 
 
