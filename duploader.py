@@ -156,7 +156,8 @@ class EventHandler(pyinotify.ProcessEvent):
 def start_duploader():
     watchers = {}
     while True:
-        new_watchers = list(common.db_cacus.distros.find())
+        # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
+        new_watchers = list(common.db_cacus.distros.find({'origin': {'$exists': False}}))
         for watcher in new_watchers:
             if watcher['distro'] not in watchers:
                 incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])

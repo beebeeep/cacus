@@ -230,16 +230,10 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
         name = req['name']
         try:
             msg = yield self.settings['workers'].submit(repo_manage.snapshot_distro, distro=distro, name=name)
-        except common.NotFound as e:
-            self.set_status(404)
+        except (common.NotFound, common.Conflict, common.FatalError, common.TemporaryError) as e:
+            self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
             return
-        except common.TemporaryError as e:
-            # TODO retries
-            # timeout raised only if we cannot lock the distro,
-            # i.e. there is some other operation processing current distro
-            self.set_status(409)
-            self.write({'success': False, 'msg': e.message})
         self.write({'success': True, 'msg': msg})
 
 
@@ -390,10 +384,10 @@ def make_app():
     s = common.config['repo_daemon']
 
     # APT interface. Using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
-    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/Release(?P<gpg>\.gpg)?$"
-    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
-    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/source/Sources$"
-    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
+    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/Release(?P<gpg>\.gpg)?$"
+    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/(?P<comp>\w+)/source/Sources$"
+    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
     storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
 
     # REST API

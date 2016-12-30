@@ -10,6 +10,7 @@ import requests
 import logging
 import logging.handlers
 import StringIO
+import collections
 from pyme import core
 from pyme.constants.sig import mode
 from threading import Event
@@ -23,19 +24,22 @@ db_cacus = None
 
 
 class FatalError(Exception):
-    pass
+    http_code = 500
 
 class TemporaryError(Exception):
-    pass
+    http_code = 409
 
 class Timeout(Exception):
-    pass
+    http_code = 504
 
 class NotFound(Exception):
-    pass
+    http_code = 404
 
-class RepoLockTimeout(Exception):
-    pass
+class Conflict(Exception):
+    http_code = 409
+
+class DistroLockTimeout(Exception):
+    http_code = 409
 
 
 def setup_logger(name):
@@ -157,7 +161,7 @@ def with_retries(fun, *args, **kwargs):
     for try_ in xrange(config['retry_count']):
             try:
                 result = fun(*args, **kwargs)
-            except (Timeout, TemporaryError, RepoLockTimeout) as e:
+            except (Timeout, TemporaryError, DistroLockTimeout) as e:
                 exc = e
                 pass
             except (FatalError, NotFound, Exception):
@@ -213,48 +217,66 @@ class ProxyStream(object):
         else:
             raise IOError("Client has closed connection")
 
-class RepoLock:
+class DistroLock:
+    """ Poor man's implementation of distributed lock in mongodb.
+    Ostrich algorithm used for dealing with deadlocks. You can always add some retries if returning 409 is not an option
+    """
 
-    def __init__(self, repo, env, timeout=30):
-        self.repo = repo
-        self.env = env
+    def __init__(self, distro, comps=None, timeout=30):
+        self.distro = distro
+        if not comps:
+            self.comps = [x['component'] for x in db_cacus.components.find({'distro': distro}, {'component': 1})]
+        else:
+            self.comps = comps
         self.timeout = timeout
         self.log = logging.getLogger("cacus.RepoLock")
 
-    def __enter__(self):
-        self.log.debug("Trying to lock %s/%s", self.repo, self.env)
-        while True:
+    def _unlock(self, comps):
+        for comp in comps:
             try:
                 db_cacus.locks.find_one_and_update(
-                    {'repo': self.repo, 'env': self.env, 'locked': 0},
+                    {'distro': self.distro, 'comp': comp, 'locked': 1},
                     {
-                        '$set': {'repo': self.repo, 'env': self.env, 'locked': 1},
+                        '$set': {'distro': self.distro, 'comp': comp, 'locked': 0},
                         '$currentDate': {'modified': {'$type': 'date'}}
                     },
                     upsert=True)
-                self.log.debug("%s/%s locked", self.repo, self.env)
-                break
+                self.log.debug("%s/%s unlocked", self.distro, comp)
             except pymongo.errors.DuplicateKeyError:
-                time.sleep(1)
-                self.timeout -= 1
-                if self.timeout <= 0:
-                    raise RepoLockTimeout("Timeout while trying to lock repo {0}/{1}".format(self.repo, self.env))
+                pass
             except:
-                self.log.error("Error while locking %s/%s: %s", self.repo, self.env, sys.exc_info())
-                break
+                self.log.error("Error while unlocking %s/%s: %s", self.distro, comp, sys.exc_info())
+
+    def __enter__(self):
+        self.log.debug("Trying to lock %s/%s", self.distro, self.comps)
+        while True:
+            locked = []
+            for comp in self.comps:
+                try:
+                    db_cacus.locks.find_one_and_update(
+                        {'distro': self.distro, 'comp': comp, 'locked': 0},
+                        {
+                            '$set': {'distro': self.distro, 'comp': comp, 'locked': 1},
+                            '$currentDate': {'modified': {'$type': 'date'}}
+                        },
+                        upsert=True)
+                    self.log.debug("%s/%s locked", self.distro, comp)
+                    locked.append(comp)
+                except pymongo.errors.DuplicateKeyError:
+                    self._unlock(locked)
+                    time.sleep(1)
+                    self.timeout -= 1
+                    if self.timeout > 0:
+                        break   # try to lock all comps once again
+                    else:
+                        raise DistroLockTimeout("Timeout while trying to lock distro {0}/{1}".format(self.distro, comp))
+                except:
+                    self.log.error("Error while locking %s/%s: %s", self.distro, comp, sys.exc_info())
+                    self._unlock(locked)
+                    raise FatalError("Error while locking {}/{}: {}", self.distro, comp, sys.exc_info())
+            else:
+                break       # good, we just locked all comps
 
     def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            db_cacus.locks.find_one_and_update(
-                {'repo': self.repo, 'env': self.env, 'locked': 1},
-                {
-                    '$set': {'repo': self.repo, 'env': self.env, 'locked': 0},
-                    '$currentDate': {'modified': {'$type': 'date'}}
-                },
-                upsert=True)
-            self.log.debug("%s/%s unlocked", self.repo, self.env)
-        except pymongo.errors.DuplicateKeyError:
-            pass
-        except:
-            self.log.error("Error while unlocking %s/%s: %s", self.repo, self.env, sys.exc_info())
+        self._unlock(self.comps)
 
