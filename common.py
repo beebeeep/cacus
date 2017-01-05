@@ -155,7 +155,7 @@ def gpg_sign(data, signer_email):
 
 def with_retries(fun, *args, **kwargs):
     delays = config['retry_delays']
-    # repeat last delay infinitely 
+    # repeat last delay infinitely
     delays = chain(delays[:-1], repeat(delays[-1]))
     exc = Exception("Don't blink!")
     for try_ in xrange(config['retry_count']):
@@ -199,7 +199,7 @@ class ProxyStream(object):
     def sync_write(self, data, event):
         self._handler.write(data)
         self._handler.flush(callback=lambda: event.set())
-    
+
     def write(self, data):
         if not self._handler.dead:
             if not self._headers_set:

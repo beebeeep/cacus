@@ -3,16 +3,14 @@
 
 
 from tornado.ioloop import IOLoop
-from tornado.web import RequestHandler, Application, url, asynchronous, MissingArgumentError, Finish
+from tornado.web import RequestHandler, Application, url, MissingArgumentError, Finish
 from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import motor
-from binascii import hexlify
 import email.utils
 import time
 import json
-import re
 import os
 
 import common
@@ -51,8 +49,9 @@ class CachedRequestHandler(RequestHandler):
         else:
             raise gen.Return((True, latest_dt))
 
+
 class JsonRequestHandler(RequestHandler):
-    
+
     def _get_json_request(self):
         if 'application/json' not in self.request.headers.get('Content-type', '').lower():
             self.set_status(400)
@@ -68,7 +67,7 @@ class JsonRequestHandler(RequestHandler):
 
         class JsonRequestData(dict):
             def __getitem__(self, key):
-                try: 
+                try:
                     return dict.__getitem__(self, key)
                 except KeyError:
                     app_log.error("Missing required argument %s", key)
@@ -87,14 +86,14 @@ class StorageHandler(RequestHandler):
         self.dead = False
         stream = common.ProxyStream(self, headers=headers)
         self.set_header('Content-Type', 'application/octet-stream')
-        # TODO last-modified, content-length and other metadata _should_ be provided! 
-        try: 
+        # TODO last-modified, content-length and other metadata _should_ be provided!
+        try:
             yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
         except common.NotFound:
             self.set_status(404)
             app_log.error("Key %s was not found at storage", key)
         except common.FatalError as e:
-            #self.set_status(500)
+            # self.set_status(500)
             app_log.error("Got error from storage plugin: %s", e)
         self.finish()
 
@@ -123,10 +122,10 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
         if doc:
             s = common.config['repo_daemon']
             if s['proxy_storage']:
-                headers = [ ('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt)) ]
+                headers = [('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt))]
                 yield self.stream_from_storage(doc['packages_file'], headers=headers)
             else:
-                # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
+                # we use x-accel-redirect instead of direct proxying via storage plugin to allow
                 # user to offload cacus' StorageHandler if current storage allows it
                 url = os.path.join(s['repo_base'], s['storage_subdir'], doc['packages_file'])
                 app_log.info("Redirecting %s/%s/%s/Packages to %s", distro, comp, arch, url)
@@ -138,7 +137,7 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
 
 class SourcesHandler(CachedRequestHandler, StorageHandler):
     """ Returns Sources repo indice
-    Generating on the fly as it's rarely used so no point to slow down 
+    Generating on the fly as it's rarely used so no point to slow down
     metadata update by pre-generating and storing this file
     """
 
@@ -160,13 +159,13 @@ class SourcesHandler(CachedRequestHandler, StorageHandler):
         if doc:
             s = common.config['repo_daemon']
             if s['proxy_storage']:
-                headers = [ ('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt)) ]
+                headers = [('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt))]
                 yield self.stream_from_storage(doc['sources_file'], headers=headers)
             else:
-                # we use x-accel-redirect instead of direct proxying via storage plugin to allow 
+                # we use x-accel-redirect instead of direct proxying via storage plugin to allow
                 # user to offload cacus' StorageHandler if current storage allows it
                 url = os.path.join(s['repo_base'], s['storage_subdir'], doc['sources_file'])
-                app_log.info("Redirecting %s/%s/source/Sources to %s", distro, comp, arch, url)
+                app_log.info("Redirecting %s/%s/source/Sources to %s", distro, comp, url)
                 self.add_header("X-Accel-Redirect", url)
                 self.set_status(200)
         else:
@@ -179,7 +178,7 @@ class SourcesFilesHandler(CachedRequestHandler):
     def get(self, distro=None, comp=None, file=None):
         db = self.settings['db']
         doc = yield db.repos[distro].find_one({'component': comp, 'sources.name': file},
-                                            {'sources.storage_key': 1, 'sources.name': 1})
+                                              {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
                 s = common.config['repo_daemon']
@@ -225,11 +224,33 @@ class ApiDistroReindexHandler(JsonRequestHandler):
 class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
-    def post(self, distro):
-        req = self._get_json_request()
-        name = req['name']
+    def get(self, distro, snapshot=None):
+        ret = {'distro': distro, 'snapshots': []}
+        snapshots = self.settings['db'].cacus.distros.find({'snapshot.origin': distro}, {'snapshot': 1, 'lastupdated': 1})
+        for snapshot in (yield snapshots.to_list(None)):
+            ret['snapshots'].append({
+                'snapshot': snapshot['snapshot']['name'],
+                'created': snapshot['lastupdated'].isoformat()
+            })
+
+        self.write(ret)
+
+    @gen.coroutine
+    def delete(self, distro, snapshot):
         try:
-            msg = yield self.settings['workers'].submit(repo_manage.snapshot_distro, distro=distro, name=name)
+            msg = yield self.settings['workers'].submit(repo_manage.delete_snapshot, distro=distro, name=snapshot)
+        except (common.NotFound, common.Conflict, common.FatalError, common.TemporaryError) as e:
+            self.set_status(e.http_code)
+            self.write({'success': False, 'msg': e.message})
+            return
+        self.write({'success': True, 'msg': msg})
+
+    @gen.coroutine
+    def post(self, distro, snapshot=None):
+        if not snapshot:
+            raise MissingArgumentError("Specify snapshot name")
+        try:
+            msg = yield self.settings['workers'].submit(repo_manage.create_snapshot, distro=distro, name=snapshot)
         except (common.NotFound, common.Conflict, common.FatalError, common.TemporaryError) as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
@@ -290,7 +311,7 @@ class ApiPkgRemoveHandler(JsonRequestHandler):
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
-        comp= req['comp']
+        comp = req['comp']
 
         try:
             r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro, pkg=pkg, ver=ver, comp=comp)
@@ -384,26 +405,23 @@ def make_app():
     s = common.config['repo_daemon']
 
     # APT interface. Using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
-    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/Release(?P<gpg>\.gpg)?$"
-    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
-    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/(?P<comp>\w+)/source/Sources$"
-    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9/]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
-    storage_re = os.path.join(s['repo_base'], s['storage_subdir'])  + r"/(?P<key>.*)$"
+    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/Release(?P<gpg>\.gpg)?$"
+    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/source/Sources$"
+    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
+    storage_re = os.path.join(s['repo_base'], s['storage_subdir']) + r"/(?P<key>.*)$"
 
     # REST API
-    ## Package operations
+    # Package operations
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
-    ## Distribution operations
+    # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9]+)$"
-
-    ## Misc/unknown/obsolete
+    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9]+)(?:/(?P<snapshot>[-_.A-Za-z0-9]+))?$"
+    # Misc/unknown/obsolete
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
-
-
 
     return Application([
         url(packages_re, PackagesHandler),

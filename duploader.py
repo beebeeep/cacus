@@ -2,17 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import os
-import sys
 import logging
 import pyinotify
-import pprint
 import time
-import re
 import threading
-from binascii import hexlify
-from minidinstall import ChangeFile, DebianSigVerifier
-from io import BytesIO
-from tornado.ioloop import IOLoop
+from minidinstall import ChangeFile
 from pyme import core, errors
 
 import repo_manage
@@ -24,8 +18,6 @@ log = logging.getLogger('cacus.duploader')
 ################################### TODO #############################
 # 1. unlink files after some time to allow debrelease/dupload/dput to do their job
 #######################################################################
-
-
 
 class EventHandler(pyinotify.ProcessEvent):
 
@@ -54,7 +46,7 @@ class EventHandler(pyinotify.ProcessEvent):
 
     def _process_single_deb(self, distro, component, file):
         if os.path.isfile(file) and file in self.uploaded_files:
-            # if file is still exists and wasn't picked by some _processChangesFile(), 
+            # if file is still exists and wasn't picked by some _processChangesFile(),
             # assume that it was meant to be uploaded as signle package
             with self.uploaded_files_lock:
                 self.uploaded_files.remove(file)
@@ -70,7 +62,6 @@ class EventHandler(pyinotify.ProcessEvent):
     def _processChangesFile(self, event):
         self.log.info("Processing .changes file %s", event.pathname)
         incoming_files = [event.pathname]
-        current_hash = None
         changes = ChangeFile.ChangeFile()
         changes.load_from_file(event.pathname)
         changes.filename = event.pathname
@@ -137,7 +128,7 @@ class EventHandler(pyinotify.ProcessEvent):
         self.log.info("Got file %s", event.pathname)
         if event.pathname.endswith(".changes"):
             thread = threading.Thread(target=self._processChangesFile, args=(event,))
-            #thread.daemon = True
+            # thread.daemon = True
             thread.start()
         else:
             # store uploaded file and send event to all waiting threads
@@ -157,7 +148,7 @@ def start_duploader():
     watchers = {}
     while True:
         # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
-        new_watchers = list(common.db_cacus.distros.find({'origin': {'$exists': False}}))
+        new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}}))
         for watcher in new_watchers:
             if watcher['distro'] not in watchers:
                 incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])
@@ -182,4 +173,3 @@ def start_duploader():
             watchers[watcher].stop()
             del(watchers[watcher])
         time.sleep(5)
-
