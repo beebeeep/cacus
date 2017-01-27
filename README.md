@@ -13,20 +13,19 @@ Moreover, Cacus features REST API that can be used to integrate it with CI/CD sy
 
 Installation:
 -----------
-Get the code, install the dependencies:
-Python libs (via pip or apt):
+Get the code, run ```python setup.py install```
+Dependencies:
 - pymongo
 - motor
 - tornado
 - pyinotify
 - requests
-- pyme
+- gnupg
 - yapsy
 - concurrent.futures
-- python-debian (>= 0.1.21+nmu3 for .xz compression support in .deb)
+- python-debian (>= 0.1.22 for .xz compression support in .deb)
 
-Debian packages:
-- mini-dinstall (it's not actually used as repo manager, just one python lib)
+Also mini-dinstall package needed (cacus uses it's python library to parse some Debian files) - this dependency will be removed later.
 
 Also you will need MongoDB running somewhere, and storage:
 - Dummy local file storage - ready to use
@@ -40,18 +39,31 @@ Human-friendly ways (debian package, docker image etc) pending.
 
 Usage:
 ------
-Just run ```python cacus.py --help```
+Just run ```cacus --help```
 
 To start incoming dirs watcher, run
 ```shell
-python cacus.py --config /path/to/cacus.yaml --duploader-daemon
+cacus --config /path/to/cacus.yaml --duploader-daemon
 ```
 
-Start repository HTTP daemon:
+Start repository HTTP daemon (APT and REST APIs):
 ```shell
-python cacus.py --config /path/to/cacus.yaml --repo-daemon
+cacus --config /path/to/cacus.yaml --repo-daemon
 ```
-Import repository:
+
+REST API documentation pending, some examples:
 ```shell
-python cacus.py --config /path/to/cacus.yaml  --import-repo /path/to/repo/ --repo REPO --env ENV
+# Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo
+curl -X POST  -vks 'localhost/debian/api/v1/distro/create/test-repo' \
+  -d '{"gpg_check": false, "description": "Test distro", "incoming_timeout": 5, "strict": false}' -H 'Content-Type: application/json'
+
+# Create snapshot "snap1" of distro "test-repo"
+curl -X POST  -vks 'localhost/debian/api/v1/distro/snapshot/test-repo/snap1'
+
+# List snapshots of "test-repo"
+curl -vks 'localhost/debian/api/v1/distro/snapshot/test-repo'
+
+# Copy package hello-world=0.1 from "unstable" to "stable" components
+curl -X POST  -vks 'localhost/debian/api/v1/package/copy/apt-test' \
+  -d '{"pkg": "hello-world", "ver": "0.1", "from": "unstable", "to": "stable"}' -H 'Content-Type: application/json'
 ```
