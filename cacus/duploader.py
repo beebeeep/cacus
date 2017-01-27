@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import os
+import time
+import atexit
 import logging
 import pyinotify
-import time
 import threading
 from minidinstall import ChangeFile
-from pyme import core, errors
 
 import repo_manage
 import common
@@ -32,17 +32,11 @@ class EventHandler(pyinotify.ProcessEvent):
         self.uploaded_event = threading.Event()
 
     def _gpgCheck(self, filename):
-        ctx = core.Context()
-        file = core.Data(file=filename)
-        plain = core.Data()
-        ctx.op_verify(file, None, plain)
-        result = ctx.op_verify_result()
-        signer_key = ctx.get_key(result.signatures[0].fpr, 0)
-        uid = signer_key.uids[0]
-        signer = "{0} <{1}>".format(uid.name, uid.email)
-        if result.signatures[0].status != 0:
-            raise Exception("File signed with untrusted key {0} ({1})".format(signer_key, signer))
-        return signer
+        with open(filename) as f:
+            result = common.gpg.verify_file(f)
+        if not result.valid:
+            raise Exception("File {} was signed with unknown key {}".format(filename, result.key_id))
+        return result.username
 
     def _process_single_deb(self, distro, component, file):
         if os.path.isfile(file) and file in self.uploaded_files:
@@ -69,10 +63,6 @@ class EventHandler(pyinotify.ProcessEvent):
         if self.gpg_check:
             try:
                 signer = self._gpgCheck(changes.filename)
-            except errors.GPGMEError as e:
-                self.log.error("Cannot check PGP signature: %s", e)
-                map(os.unlink, incoming_files)
-                return
             except Exception as e:
                 self.log.error("%s verification failed: %s", event.pathname, e)
                 map(os.unlink, incoming_files)
@@ -144,32 +134,42 @@ class EventHandler(pyinotify.ProcessEvent):
             uploader.start()
 
 
+def _cleanup(watchers):
+    for w, notifier in watchers.items():
+        notifier.stop()
+        del watchers[w]
+
+
 def start_duploader():
     watchers = {}
-    while True:
-        # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
-        new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}}))
-        for watcher in new_watchers:
-            if watcher['distro'] not in watchers:
-                incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])
-                try:
-                    if not os.path.isdir(incoming_dir):
-                        log.debug("Creating incoming dir '%s'", incoming_dir)
-                        os.mkdir(incoming_dir)
-                except Exception as e:
-                    log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
-                    continue
-                handler = EventHandler(watcher)
-                wm = pyinotify.WatchManager()
-                notifier = pyinotify.ThreadedNotifier(wm, handler)
-                wdd = wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
-                log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
-                notifier.start()
-                watchers[watcher['distro']] = notifier
+    atexit.register(_cleanup, watchers)
+    try:
+        while True:
+            # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
+            new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}}))
+            for watcher in new_watchers:
+                if watcher['distro'] not in watchers:
+                    incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])
+                    try:
+                        if not os.path.isdir(incoming_dir):
+                            log.debug("Creating incoming dir '%s'", incoming_dir)
+                            os.mkdir(incoming_dir)
+                    except Exception as e:
+                        log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
+                        continue
+                    handler = EventHandler(watcher)
+                    wm = pyinotify.WatchManager()
+                    notifier = pyinotify.ThreadedNotifier(wm, handler)
+                    wdd = wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
+                    log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
+                    notifier.start()
+                    watchers[watcher['distro']] = notifier
 
-        abandoned = set(watchers.keys()) - set(x['distro'] for x in new_watchers)
-        for watcher in abandoned:
-            log.info("Removing notifier for distribution '%s'", watcher)
-            watchers[watcher].stop()
-            del(watchers[watcher])
-        time.sleep(5)
+            abandoned = set(watchers.keys()) - set(x['distro'] for x in new_watchers)
+            for watcher in abandoned:
+                log.info("Removing notifier for distribution '%s'", watcher)
+                watchers[watcher].stop()
+                del(watchers[watcher])
+            time.sleep(5)
+    except KeyboardInterrupt:
+        _cleanup(watchers)

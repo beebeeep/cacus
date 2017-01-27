@@ -444,7 +444,7 @@ def start_daemon():
     server = httpserver.HTTPServer(app)
     server.bind(common.config['repo_daemon']['port'])
     server.start(0)
-    db = motor.MotorClient(host=common.config['metadb']['host'], port=common.config['metadb']['port'])
+    db = motor.MotorClient(**(common.config['db']))
     thread_pool = ThreadPoolExecutor(100)
     app.settings['db'] = db
     app.settings['workers'] = thread_pool

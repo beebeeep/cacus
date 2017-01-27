@@ -7,8 +7,7 @@ import logging
 import xml.etree.ElementTree as ET
 import time
 
-from yapsy.IPlugin import IPlugin
-import plugins
+from cacus import plugins
 
 log = logging.getLogger('cacus.mds_storage')
 

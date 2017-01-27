@@ -1,42 +1,48 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import os
 import sys
 import time
 import yaml
+import gnupg
 import pymongo
 import hashlib
 import requests
 import logging
 import logging.handlers
 import StringIO
-import collections
-from pyme import core
-from pyme.constants.sig import mode
 from threading import Event
 from itertools import chain, repeat
 from tornado.ioloop import IOLoop
 
 
 config = None
+db = None
 db_packages = None
 db_cacus = None
+gpg = None
 
 
 class FatalError(Exception):
     http_code = 500
 
+
 class TemporaryError(Exception):
     http_code = 409
+
 
 class Timeout(Exception):
     http_code = 504
 
+
 class NotFound(Exception):
     http_code = 404
 
+
 class Conflict(Exception):
     http_code = 409
+
 
 class DistroLockTimeout(Exception):
     http_code = 409
@@ -64,25 +70,28 @@ def setup_logger(name):
     return log
 
 
-def connect_mongo(cfg):
-    if cfg['type'] == 'single_mongo':
-        return pymongo.MongoClient(host=cfg['host'], port=cfg['port'])
-
-
-def load_config(config_file):
-    config = None
+def initialize(config_file):
+    global config, db, db_packages, db_cacus, gpg
+    if not config_file:
+        if os.path.isfile('/etc/cacus.yml'):
+            config_file = '/etc/cacus.yml'
+        else:
+            config_file = '/etc/cacus-default.yml'
     with open(config_file) as cfg:
         config = yaml.load(cfg)
-    ctx = core.Context()
-    keys = [x for x in ctx.op_keylist_all(config['gpg']['signer'], 1)]
+
+    gpg = gnupg.GPG(homedir=config['gpg']['home'])
+    keys = [x for x in gpg.list_keys(secret=True) if config['gpg']['sign_key'] in x['keyid']]
     if len(keys) < 1:
-        logging.critical("Cannot find suitable keys for %s", config['gpg']['signer'])
+        logging.critical("Cannot find secret key for %s", config['gpg']['sign_key'])
         sys.exit(1)
 
     config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')
     config['repo_daemon']['storage_subdir'] = config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
-
-    return config
+    db = pymongo.MongoClient(**(config['db']))
+    db_cacus = db['cacus']
+    db_packages = db['packages']
+    print config
 
 
 def get_hashes(file):
@@ -142,16 +151,10 @@ def download_file(url, filename):
         raise FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
 
 
-def gpg_sign(data, signer_email):
-    sig = core.Data()
-    plain = core.Data(data)
-    ctx = core.Context()
-    ctx.set_armor(1)
-    signer = ctx.op_keylist_all(signer_email, 1).next()
-    ctx.signers_add(signer)
-    ctx.op_sign(plain, sig, mode.DETACH)
-    sig.seek(0, 0)
-    return sig.read()
+def gpg_sign(data):
+    signature = gpg.sign(data, default_key=config['gpg']['sign_key'], detach=True)
+    return signature.data
+
 
 def with_retries(fun, *args, **kwargs):
     delays = config['retry_delays']
@@ -187,6 +190,7 @@ class myStringIO(StringIO.StringIO):
         # close() on StringIO will free memory buffer, so 'with' statement is destructive
         self.close()
 
+
 class ProxyStream(object):
     """ stream-like object for streaming result of blocking function to
         client of Tornado server
@@ -213,9 +217,10 @@ class ProxyStream(object):
             # so schedule write & flush for next iteration
             IOLoop.current().add_callback(self.sync_write, data, event)
             event.wait()
-            return 0 #len(data)
+            return 0    # len(data)
         else:
             raise IOError("Client has closed connection")
+
 
 class DistroLock:
     """ Poor man's implementation of distributed lock in mongodb.
@@ -279,4 +284,3 @@ class DistroLock:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._unlock(self.comps)
-

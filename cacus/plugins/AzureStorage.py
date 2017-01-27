@@ -3,19 +3,15 @@
 
 """
     Azure blob storage plugin
-    see https://azure.microsoft.com/en-us/documentation/articles/storage-python-how-to-use-blob-storage/ 
+    see https://azure.microsoft.com/en-us/documentation/articles/storage-python-how-to-use-blob-storage/
 """
 
-import os
-import re
 import logging
 
-import uuid
-from yapsy.IPlugin import IPlugin
 from azure.common import AzureMissingResourceHttpError, AzureHttpError, AzureException
 from azure.storage.blob import BlockBlobService, PublicAccess, ContentSettings
 
-import plugins
+from cacus import plugins
 
 try:
     from cacus import common
@@ -83,7 +79,7 @@ class AzureStorage(plugins.IStoragePlugin):
     def get(self, key, stream):
         # current azure python sdk barely can work with non-seekable streams,
         # so we have to implement chunking by our own
-        # TODO: proper ranging? RFC says server SHOULD return 406 once range is unsatisfiable, 
+        # TODO: proper ranging? RFC says server SHOULD return 406 once range is unsatisfiable,
         # but Azure is OK with end pos > blob length unless blob is not empty
         chunk_size = 4*1024*1024
         chunk_start = 0

@@ -1,0 +1,38 @@
+storage:
+  type: FileStorage
+  path: /srv/cacus/pool/
+#    type: AzureStorage
+#    account_name: put_your_own
+#    account_key: put_your_own
+#    container: repos
+
+logging:
+  level: DEBUG 
+  destinations:
+    console: true
+    syslog: False       # or syslog facility (daemon, user etc)
+    file: /tmp/cacus.log
+
+db:
+  # threat this subtree as kwargs to pymongo.MongoClient(),
+  # for example, add replicaSet option if you want to connect to replicaset 
+  host: 
+    - localhost:27017
+
+repo_daemon:
+  port: 1488
+  repo_base: '/debian'
+  storage_subdir: 'storage'
+  proxy_storage: true
+
+duploader_daemon:
+  incoming_root: /srv/cacus/incoming/
+
+# make sure daemon is started under correct GPG environment 
+# to find all trusted and signing keys (see gpg(1) for more info)
+gpg:    
+  home: /var/lib/cacus/.gnupg
+  sign_key: D520677A
+
+retry_count: 3
+retry_delays: [2, 5, 10, 30, 60, 90]

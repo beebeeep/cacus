@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import logging
 from yapsy.PluginManager import PluginManagerSingleton
 
 import common
 import plugins
-import logging
 
 loaded_plugins = {}
 log = logging.getLogger('cacus.loader')
@@ -39,4 +39,3 @@ def load_plugins():
 
 def get_plugin(category):
     return loaded_plugins[category].plugin_object
-

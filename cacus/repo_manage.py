@@ -10,8 +10,9 @@ from binascii import hexlify
 from datetime import datetime
 from bson import binary
 import plugin_loader
-import common
 from pymongo.collection import ReturnDocument
+
+import common
 
 log = logging.getLogger('cacus.repo_manage')
 
@@ -125,7 +126,7 @@ def _create_release(distro, settings=None, ts=None):
             for file in sources)
     release += u"\n"
 
-    release_gpg = common.gpg_sign(release.encode('utf-8'), common.config['gpg']['signer'])
+    release_gpg = common.gpg_sign(release.encode('utf-8'))
 
     return release, release_gpg
 
@@ -349,11 +350,13 @@ def generate_sources_file(distro, comp):
 
 
 def generate_packages_file(distro, comp, arch):
+    log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
     data = common.myStringIO()
-    distro = common.db_packages.packages.find({'repos': {'distro': distro, 'component': comp}, 'debs.Architecture': arch})
+    distro = common.db_packages.packages.find({'repos': {'distro': distro, 'component': comp}, 'debs.Architecture': {'$in': [arch, 'all']}})
     for pkg in distro:
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
-        for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
+        for deb in pkg['debs']:
+            log.debug("Processing %s", pkg['Source'])
             for k, v in deb.iteritems():
                 if k == 'md5':
                     string = "MD5sum: {0}\n".format(hexlify(v))

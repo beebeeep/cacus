@@ -4,8 +4,7 @@
 import os
 import logging
 from shutil import copy
-from yapsy.IPlugin import IPlugin
-import plugins
+from cacus import plugins
 
 try:
     from cacus import common
