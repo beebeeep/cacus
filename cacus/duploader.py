@@ -7,17 +7,14 @@ import atexit
 import logging
 import pyinotify
 import threading
-from minidinstall import ChangeFile
+from binascii import hexlify
+from debian import deb822
 
 import repo_manage
 import common
 
 log = logging.getLogger('cacus.duploader')
 
-
-################################### TODO #############################
-# 1. unlink files after some time to allow debrelease/dupload/dput to do their job
-#######################################################################
 
 class EventHandler(pyinotify.ProcessEvent):
 
@@ -27,15 +24,17 @@ class EventHandler(pyinotify.ProcessEvent):
         self.strict = settings.get('strict', True)
         self.incoming_wait_timeout = settings.get('incoming_wait_timeout', 5)
         self.log = logging.getLogger('cacus.duploader.{0}'.format(self.distro))
-        self.uploaded_files = set()
+        self.uploaded_files = {}
         self.uploaded_files_lock = threading.Lock()
         self.uploaded_event = threading.Event()
 
-    def _gpgCheck(self, filename):
-        with open(filename) as f:
-            result = common.gpg.verify_file(f)
+    def _gpgCheck(self, data):
+        result = common.gpg.verify(data)
         if not result.valid:
-            raise Exception("File {} was signed with unknown key {}".format(filename, result.key_id))
+            if result.status:
+                raise Exception("signed with {}, status '{}'".format(result.key_id, result.status))
+            else:
+                raise Exception("Bad PGP data")
         return result.username
 
     def _process_single_deb(self, distro, component, file):
@@ -43,7 +42,7 @@ class EventHandler(pyinotify.ProcessEvent):
             # if file is still exists and wasn't picked by some _processChangesFile(),
             # assume that it was meant to be uploaded as signle package
             with self.uploaded_files_lock:
-                self.uploaded_files.remove(file)
+                self.uploaded_files.pop(file)
             self.log.debug("Uploading %s to %s/%s", file, distro, component)
             try:
                 common.with_retries(repo_manage.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
@@ -53,16 +52,31 @@ class EventHandler(pyinotify.ProcessEvent):
         elif file in self.uploaded_files:
             self.log.debug("Hm, strange, I was supposed to upload %s, but it's missing now", file)
 
+    def _verifyChangesFile(self, changes, hashes):
+        for file in changes['Files']:
+            name = file['name']
+            if file['md5sum'] != hexlify(hashes[name]['md5']):
+                raise Exception(name)
+        for file in changes['Checksums-Sha1']:
+            name = file['name']
+            if file['sha1'] != hexlify(hashes[name]['sha1']):
+                raise Exception(name)
+        for file in changes['Checksums-Sha256']:
+            name = file['name']
+            if file['sha256'] != hexlify(hashes[name]['sha256']):
+                raise Exception(name)
+
     def _processChangesFile(self, event):
         self.log.info("Processing .changes file %s", event.pathname)
         incoming_files = [event.pathname]
-        changes = ChangeFile.ChangeFile()
-        changes.load_from_file(event.pathname)
-        changes.filename = event.pathname
+        hashes = {}
+
+        with open(event.pathname) as f:
+            changes = deb822.Changes(f)
 
         if self.gpg_check:
             try:
-                signer = self._gpgCheck(changes.filename)
+                signer = self._gpgCheck(changes.raw_text)
             except Exception as e:
                 self.log.error("%s verification failed: %s", event.pathname, e)
                 map(os.unlink, incoming_files)
@@ -74,16 +88,15 @@ class EventHandler(pyinotify.ProcessEvent):
 
         # .changes file contatins all incoming files and its checksums, so
         # check if all files are available or wait for them
-        for f in changes.getFiles():
-            filename = os.path.join(event.path, f[2])
+        for f in changes['Files']:
+            filename = os.path.join(event.path, f['name'])
             self.log.info("Looking for %s from .changes", filename)
             while True:
                 # uploaded_files stores all files in incoming directory uploaded so far
                 if filename in self.uploaded_files:
-                    # eeeh, we're under GIL, yea? do we really need to take a lock here?
                     with self.uploaded_files_lock:
                         self.log.debug("Taking %s for processing", filename)
-                        self.uploaded_files.remove(filename)
+                        hashes[f['name']] = self.uploaded_files.pop(filename)
                     incoming_files.append(filename)
                     break
                 else:
@@ -97,8 +110,8 @@ class EventHandler(pyinotify.ProcessEvent):
 
         # TODO: add reject dir and metadb collection and store all rejected files there
         try:
-            changes.verify(event.path)
-        except ChangeFile.ChangeFileException as e:
+            self._verifyChangesFile(changes, hashes)
+        except Exception as e:
             self.log.error("Checksum verification failed: %s", e)
         else:
             # TODO set default component / add per-component upload dirs
@@ -122,7 +135,7 @@ class EventHandler(pyinotify.ProcessEvent):
             thread.start()
         else:
             # store uploaded file and send event to all waiting threads
-            self.uploaded_files.add(event.pathname)
+            self.uploaded_files[event.pathname] = common.get_hashes(filename=event.pathname)
             self.uploaded_event.set()
             self.uploaded_event.clear()
 
@@ -160,7 +173,7 @@ def start_duploader():
                     handler = EventHandler(watcher)
                     wm = pyinotify.WatchManager()
                     notifier = pyinotify.ThreadedNotifier(wm, handler)
-                    wdd = wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
+                    wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
                     log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
                     notifier.start()
                     watchers[watcher['distro']] = notifier

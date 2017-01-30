@@ -27,7 +27,7 @@ class UpdateRepoMetadataError(Exception):
 
 def _process_deb_file(file, storage_key):
     with open(file) as f:
-        hashes = common.get_hashes(f)
+        hashes = common.get_hashes(file=f)
 
     doc = {
         'size': os.stat(file)[stat.ST_SIZE],
@@ -50,7 +50,7 @@ def _process_deb_file(file, storage_key):
 
 def _process_source_file(file, storage_key):
     with open(file) as f:
-        hashes = common.get_hashes(f)
+        hashes = common.get_hashes(file=f)
 
     filename = os.path.basename(file)
     dsc = None
@@ -159,8 +159,8 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
                 meta['dsc'] = dsc
 
         if changes:
-            meta['Source'] = changes['source']
-            meta['Version'] = changes['version']
+            meta['Source'] = changes['Source']
+            meta['Version'] = changes['Version']
         else:
             # if changes file is not present (i.e. we are uploading single deb file in non-strict repo),
             # take package name and version from 1st (which also should be last) deb file

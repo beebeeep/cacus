@@ -91,10 +91,12 @@ def initialize(config_file):
     db = pymongo.MongoClient(**(config['db']))
     db_cacus = db['cacus']
     db_packages = db['packages']
-    print config
 
 
-def get_hashes(file):
+def get_hashes(file=None, filename=None):
+    if filename:
+        file = open(filename)
+
     md5 = hashlib.md5()
     sha1 = hashlib.sha1()
     sha256 = hashlib.sha256()
@@ -110,6 +112,9 @@ def get_hashes(file):
         sha512.update(chunk)
 
     file.seek(fpos)
+
+    if filename:
+        file.close()
 
     return {'md5': md5.digest(), 'sha1': sha1.digest(), 'sha256': sha256.digest(), 'sha512': sha512.digest()}
 
