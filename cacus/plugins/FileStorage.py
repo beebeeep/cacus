@@ -4,18 +4,18 @@
 import os
 import logging
 from shutil import copy
-from cacus import plugins
 
 try:
-    from cacus import common
+    from cacus import common, plugin
 except ImportError:
     import sys
-    sys.path.append('../..')
-    from cacus import common
+    sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+    from cacus import common, plugin
+
 log = logging.getLogger('cacus.file_storage')
 
 
-class FileStorage(plugins.IStoragePlugin):
+class FileStorage(plugin.IStoragePlugin):
 
     def configure(self, config):
         self.root = config['path']
@@ -34,7 +34,7 @@ class FileStorage(plugins.IStoragePlugin):
             raise common.FatalError(e)
 
     def put(self, key, filename=None, file=None):
-        #TODO: hashdir mb?
+        # TODO: hashdir mb?
         storage_key = key
         storage_path = os.path.join(self.root, storage_key)
         storage_dir = os.path.dirname(storage_path)

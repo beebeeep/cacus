@@ -6,24 +6,23 @@
     see https://azure.microsoft.com/en-us/documentation/articles/storage-python-how-to-use-blob-storage/
 """
 
+import os
 import logging
 
 from azure.common import AzureMissingResourceHttpError, AzureHttpError, AzureException
 from azure.storage.blob import BlockBlobService, PublicAccess, ContentSettings
 
-from cacus import plugins
-
 try:
-    from cacus import common
+    from cacus import common, plugin
 except ImportError:
     import sys
-    sys.path.append('../..')
-    from cacus import common
+    sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+    from cacus import common, plugin
 
 log = logging.getLogger('cacus.azure_storage')
 
 
-class AzureStorage(plugins.IStoragePlugin):
+class AzureStorage(plugin.IStoragePlugin):
 
     def configure(self, config):
         self.storage = BlockBlobService(account_name=config['account_name'], account_key=config['account_key'])
@@ -38,13 +37,13 @@ class AzureStorage(plugins.IStoragePlugin):
                 self.storage.set_container_acl(self.container, public_access=PublicAccess.Container)
             except Exception as e:
                 log.critical("Cannot create new container: %s", e)
-                raise plugins.PluginInitException("Cannot create new container")
+                raise PluginInitException("Cannot create new container")
         except AzureHttpError as e:
             log.critical("Cannot access container '%s' in account '%s': %s", self.container, self.storage.account_name, e)
-            raise plugins.PluginInitException("Cannot access container")
+            raise PluginInitException("Cannot access container")
         except Exception as e:
             log.critical("Cannot access container '%s' in account '%s': %s", self.container, self.storage.account_name, e)
-            raise plugins.PluginInitException("Cannot access container")
+            raise PluginInitException("Cannot access container")
 
     def delete(self, key):
         log.info("Deleting file '%s' from %s/%s", key, self.storage.account_name, self.container)

@@ -36,3 +36,8 @@ gpg:
 
 retry_count: 3
 retry_delays: [2, 5, 10, 30, 60, 90]
+
+# additional plugins
+plugin_path:
+  - /opt/cacus/plugins
+
