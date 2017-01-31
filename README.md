@@ -25,8 +25,6 @@ Dependencies:
 - concurrent.futures
 - python-debian (>= 0.1.22 for .xz compression support in .deb)
 
-Also mini-dinstall package needed (cacus uses it's python library to parse some Debian files) - this dependency will be removed later.
-
 Also you will need MongoDB running somewhere, and storage:
 - Dummy local file storage - ready to use
 - Azure Blob Storage - ready to use

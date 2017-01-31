@@ -22,6 +22,7 @@ db = None
 db_packages = None
 db_cacus = None
 gpg = None
+default_arches = ['all', 'amd64', 'i386']
 
 
 class FatalError(Exception):

@@ -141,7 +141,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         base_key = "{0}/pool/{1}".format(distro, filename)
 
         log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
-        storage_key = plugin_loader.get_plugin('storage').put(base_key, filename=file)
+        storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
         # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
         if file.endswith('.deb') or file.endswith('.udeb'):
@@ -177,7 +177,8 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
                         {'$set': meta, '$addToSet': {'repos': {'distro': distro, 'component': comp}}},
                         upsert=True)
                 if not skipUpdateMeta:
-                    log.info("Updating '%s/%s' distro metadata for arches: %s", distro, comp, ', '.join(affected_arches))
+                    if len(affected_arches) == 1 and 'all' in affected_arches:
+                        affected_arches = None      # update all arches in case of "all" arch package
                     update_distro_metadata(distro, [comp], affected_arches, force=forceUpdateMeta)
         except common.DistroLockTimeout as e:
             log.error("Error updating distro: %s", e)
@@ -195,9 +196,12 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
         comps = common.db_cacus.repos.find({'distro': distro}).distinct('component')
     if not arches:
         arches = common.db_cacus.repos.find({'distro': distro}).distinct('architecture')
+        arches.extend(common.default_arches)
 
     if not comps or not arches:
         raise common.NotFound("Distro {} is not found or empty".format(distro))
+
+    log.info("Updating metadata for distro %s, components: %s, arches: %s", distro, ', '.join(comps), ', '.join(arches))
 
     # update all Packages files of specified architectures in specified components
     for comp in comps:
