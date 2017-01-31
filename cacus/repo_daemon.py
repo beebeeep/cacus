@@ -15,7 +15,8 @@ import os
 
 import common
 import repo_manage
-import plugin_loader
+import plugin
+
 
 access_log = logging.getLogger('tornado.access')
 app_log = logging.getLogger('tornado.application')
@@ -88,7 +89,7 @@ class StorageHandler(RequestHandler):
         self.set_header('Content-Type', 'application/octet-stream')
         # TODO last-modified, content-length and other metadata _should_ be provided!
         try:
-            yield self.settings['workers'].submit(plugin_loader.get_plugin('storage').get, key, stream)
+            yield self.settings['workers'].submit(plugin.get_plugin('storage').get, key, stream)
         except common.NotFound:
             self.set_status(404)
             app_log.error("Key %s was not found at storage", key)

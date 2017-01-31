@@ -5,15 +5,8 @@ import os
 import logging
 from shutil import copy
 
-try:
-    from cacus import common
-    from cacus.plugins import IStoragePlugin
-#    from cacus.plugin import IStoragePlugin
-except ImportError:
-    import sys
-    sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-    from cacus import common
-    from cacus.plugins import IStoragePlugin
+from cacus import common
+from cacus.plugin import IStoragePlugin
 
 log = logging.getLogger('cacus.file_storage')
 

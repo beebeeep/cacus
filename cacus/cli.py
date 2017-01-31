@@ -22,7 +22,7 @@ import repo_manage
 import repo_daemon
 import duploader
 import dist_importer
-import plugin_loader
+import plugin
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 
@@ -75,7 +75,7 @@ def main():
         rootLogger.addHandler(handler)
 
     log = logging.getLogger('cacus')
-    plugin_loader.load_plugins()
+    plugin.load_plugins()
 
     if args.upload:
         # repo_manage.upload_packages(args.to, args.env, args.pkgs)

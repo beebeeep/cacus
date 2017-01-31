@@ -9,10 +9,10 @@ from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
 from bson import binary
-import plugin_loader
 from pymongo.collection import ReturnDocument
 
 import common
+import plugin
 
 log = logging.getLogger('cacus.repo_manage')
 
@@ -220,7 +220,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
             # we hold Packages under unique filename as far as we don't want to make assumptions whether
             # our storage engine supports updating of keys
             base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, md5.hexdigest())
-            storage_key = plugin_loader.get_plugin('storage').put(base_key, file=packages)
+            storage_key = plugin.get_plugin('storage').put(base_key, file=packages)
             # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
             old_repo = common.db_cacus.repos.find_one_and_update(
@@ -250,7 +250,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
                 else:
                     log.debug("Removing old Packages file %s", old_key)
                     try:
-                        plugin_loader.get_plugin('storage').delete(old_key)
+                        plugin.get_plugin('storage').delete(old_key)
                     except common.NotFound:
                         log.warning("Cannot find old Packages file")
 
@@ -269,7 +269,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
             log.warn("Sources file for %s/%s not changed, skipping update", distro, comp)
             continue
         base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
-        storage_key = plugin_loader.get_plugin('storage').put(base_key, file=sources)
+        storage_key = plugin.get_plugin('storage').put(base_key, file=sources)
 
         old_component = common.db_cacus.components.find_one_and_update(
                 {'distro': distro, 'component': comp},
@@ -298,7 +298,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
             else:
                 log.debug("Removing old Sources file %s", old_key)
                 try:
-                    plugin_loader.get_plugin('storage').delete(old_key)
+                    plugin.get_plugin('storage').delete(old_key)
                 except common.NotFound:
                     log.warning("Cannot find old Sources file")
 

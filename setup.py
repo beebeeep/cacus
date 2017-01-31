@@ -19,7 +19,7 @@ setup(
         ]
     },
     package_data={
-        'cacus': ['plugins/*.yapsy-plugin']
+        'cacus': ['plugins/*.plugin']
     },
     data_files=[
         ('/etc', ['cacus-default.yml'])
