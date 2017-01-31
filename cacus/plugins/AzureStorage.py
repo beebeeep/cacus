@@ -7,22 +7,26 @@
 """
 
 import os
+import re
 import logging
 
 from azure.common import AzureMissingResourceHttpError, AzureHttpError, AzureException
 from azure.storage.blob import BlockBlobService, PublicAccess, ContentSettings
 
+
 try:
-    from cacus import common, plugin
+    from cacus import common
+    from cacus.plugins import IStoragePlugin, PluginInitException
 except ImportError:
     import sys
     sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-    from cacus import common, plugin
+    from cacus import common
+    from cacus.plugins import IStoragePlugin, PluginInitException
 
 log = logging.getLogger('cacus.azure_storage')
 
 
-class AzureStorage(plugin.IStoragePlugin):
+class AzureStorage(IStoragePlugin):
 
     def configure(self, config):
         self.storage = BlockBlobService(account_name=config['account_name'], account_key=config['account_key'])

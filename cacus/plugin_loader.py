@@ -6,7 +6,7 @@ from yapsy.PluginManager import PluginManagerSingleton
 
 import os
 import common
-from plugin import IStoragePlugin
+from plugins import IStoragePlugin
 #import plugin
 
 loaded_plugins = {}
