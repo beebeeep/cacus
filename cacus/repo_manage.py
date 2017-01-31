@@ -355,7 +355,7 @@ def generate_packages_file(distro, comp, arch):
     distro = common.db_packages.packages.find({'repos': {'distro': distro, 'component': comp}, 'debs.Architecture': {'$in': [arch, 'all']}})
     for pkg in distro:
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
-        for deb in pkg['debs']:
+        for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
             log.debug("Processing %s", pkg['Source'])
             for k, v in deb.iteritems():
                 if k == 'md5':

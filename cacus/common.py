@@ -157,7 +157,7 @@ def download_file(url, filename):
 
 
 def gpg_sign(data):
-    signature = gpg.sign(data, default_key=config['gpg']['sign_key'], detach=True)
+    signature = gpg.sign(data, default_key=config['gpg']['sign_key'], detach=True, clearsign=False)
     return signature.data
 
 
