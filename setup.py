@@ -12,7 +12,7 @@ setup(
     long_description="",
     license="MIT",
     packages=find_packages(),
-    install_requires=['PyYAML', 'requests', 'pymongo', 'motor', 'tornado', 'pyinotify', 'gnupg', 'yapsy', 'futures', 'python-debian'],
+    install_requires=['PyYAML', 'requests', 'pymongo', 'motor', 'tornado', 'pyinotify', 'gnupg', 'yapsy', 'futures', 'python-debian', 'azure-common', 'azure-storage'],
     entry_points={
         'console_scripts': [
             'cacus = cacus.cli:main'
