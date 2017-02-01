@@ -19,7 +19,7 @@ setup(
         ]
     },
     package_data={
-        'cacus': ['plugins/*.plugin']
+        'cacus': ['plugins/*']
     },
     data_files=[
         ('/etc', ['cacus-default.yml'])
