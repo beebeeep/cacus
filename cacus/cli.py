@@ -21,7 +21,7 @@ import common
 import repo_manage
 import repo_daemon
 import duploader
-import dist_importer
+# import dist_importer
 import plugin
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
@@ -42,7 +42,7 @@ def main():
     op_type.add_argument('--duploader-daemon', action='store_true', help='Start duploader daemon')
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
     op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
-    op_type.add_argument('--import-repo', type=str, metavar='PATH', help='Import mounted dist.yandex.ru repo')
+    # op_type.add_argument('--import-repo', type=str, metavar='PATH', help='Import mounted dist.yandex.ru repo')
     parser.add_argument('--from', choices=env_choices, help='From env')
     parser.add_argument('--to', choices=env_choices, help='To env')
     parser.add_argument('--repo', type=str, help='Repository')
@@ -90,8 +90,8 @@ def main():
     elif args.dmove:
         repo_manage.dmove_package(pkg=args.dmove[0], ver=args.dmove[1],
                                   repo=args.repo, src=args.__getattribute__('from'), dst=args.to)
-    elif args.import_repo:
-        dist_importer.import_repo(repo_url=args.import_repo, repo=args.repo, env=args.env)
+    # elif args.import_repo:
+    #    dist_importer.import_repo(repo_url=args.import_repo, repo=args.repo, env=args.env)
 
 
 if __name__ == '__main__':
