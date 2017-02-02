@@ -13,7 +13,7 @@ Moreover, Cacus features REST API that can be used to integrate it with CI/CD sy
 
 Installation:
 -----------
-Get the code, run ```python setup.py install```
+Get the code, then either run ```python setup.py install``` to install it locally or use ```docker build``` to create Docker image. 
 Dependencies:
 - pymongo
 - motor
@@ -25,6 +25,8 @@ Dependencies:
 - concurrent.futures
 - python-debian (>= 0.1.22 for .xz compression support in .deb)
 
+NOTE: on some crippled platforms, like Debian Jessie, you probably will need to manually install azure libs in order to use AzureStorage plugin: ```sudo pip install --upgrade azure-common azure-storage``` (this is probably due to Azure/azure-storage-python#51)
+
 Also you will need MongoDB running somewhere, and storage:
 - Dummy local file storage - ready to use
 - Azure Blob Storage - ready to use
@@ -33,7 +35,11 @@ Also you will need MongoDB running somewhere, and storage:
 - Ceph (http://ceph.com) - planned
 - Any other - feel free to contribute your storage plugin
 
-Human-friendly ways (debian package, docker image etc) pending.
+Human-friendly ways (debian package, docker image etc) pending
+
+Configuration & environment
+---------------------------
+You can use [sample config file](contrib/cacus-default.yml) to make your own config (its default location is ```/etc/cacus.yml```). For docker you can map some external folder with config file, incoming dir and GPG homedir to some location inside, i.e. ```docker run --name cacus -P -v /srv/cacus:/cacus cacus-image```, just make sure that paths in config are correct. 
 
 Usage:
 ------
