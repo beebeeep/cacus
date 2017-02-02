@@ -22,6 +22,6 @@ setup(
         'cacus': ['plugins/*']
     },
     data_files=[
-        ('/etc', ['cacus-default.yml'])
+        ('/etc', ['contrib/cacus-default.yml'])
     ]
 )
