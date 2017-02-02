@@ -12,4 +12,4 @@ RUN cd /tmp && python setup.py install
 EXPOSE 1488
 
 CMD cacus -c /cacus/config.yml --repo-daemon
-
+ENTRYPOINT ["cacus" "-c" "/cacus/config.yml"]
