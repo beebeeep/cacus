@@ -81,10 +81,13 @@ def initialize(config_file):
     with open(config_file) as cfg:
         config = yaml.load(cfg)
 
-    gpg = gnupg.GPG(homedir=config['gpg']['home'])
-    keys = [x for x in gpg.list_keys(secret=True) if config['gpg']['sign_key'] in x['keyid']]
-    if len(keys) < 1:
-        logging.critical("Cannot find secret key for %s", config['gpg']['sign_key'])
+    try:
+        gpg = gnupg.GPG(homedir=config['gpg']['home'])
+        keys = [x for x in gpg.list_keys(secret=True) if config['gpg']['sign_key'] in x['keyid']]
+        if len(keys) < 1:
+            raise Exception("Cannot find secret key with ID {}".format(config['gpg']['sign_key']))
+    except Exception as e:
+        logging.critical("GPG initialization error: %s", e)
         sys.exit(1)
 
     config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')

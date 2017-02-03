@@ -12,7 +12,12 @@ import traceback
 class MyLogger(logging.getLoggerClass()):
     def error(self, msg, *args, **kwargs):
         if sys.exc_info()[0]:
-            msg += "\n{}".format(traceback.format_exc().replace('%', '%%'))
+            msg = str(msg) + "\n{}".format(traceback.format_exc().replace('%', '%%'))
+        return super(MyLogger, self).error(msg, *args, **kwargs)
+
+    def critical(self, msg, *args, **kwargs):
+        if sys.exc_info()[0]:
+            msg = str(msg) + "\n{}".format(traceback.format_exc().replace('%', '%%'))
         return super(MyLogger, self).error(msg, *args, **kwargs)
 
 logging.setLoggerClass(MyLogger)
@@ -36,12 +41,13 @@ def main():
     parser.add_argument('-v', '--verbosity', type=str, default='error',
                         help='Log file verbosity (default is "error")')
     op_type = parser.add_mutually_exclusive_group()
-    op_type.add_argument('--upload', action='store_true', help='Upload package(s)')
-    op_type.add_argument('--remove', action='store_true', help='Remove package(s)')
-    op_type.add_argument('--dmove', nargs=2, metavar=('PKG', 'VER'), help='Dmove package(s)')
     op_type.add_argument('--duploader-daemon', action='store_true', help='Start duploader daemon')
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
     op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
+    """
+    op_type.add_argument('--upload', action='store_true', help='Upload package(s)')
+    op_type.add_argument('--remove', action='store_true', help='Remove package(s)')
+    op_type.add_argument('--dmove', nargs=2, metavar=('PKG', 'VER'), help='Dmove package(s)')
     # op_type.add_argument('--import-repo', type=str, metavar='PATH', help='Import mounted dist.yandex.ru repo')
     parser.add_argument('--from', choices=env_choices, help='From env')
     parser.add_argument('--to', choices=env_choices, help='To env')
@@ -49,6 +55,7 @@ def main():
     parser.add_argument('--arch', type=str, help='Architecture')
     parser.add_argument('--env', choices=env_choices, help='Environment')
     parser.add_argument('pkgs', type=str, nargs='*')
+    """
     args = parser.parse_args()
 
     common.initialize(args.config)
@@ -77,22 +84,22 @@ def main():
     log = logging.getLogger('cacus')
     plugin.load_plugins()
 
-    if args.upload:
-        # repo_manage.upload_packages(args.to, args.env, args.pkgs)
-        print "This option is broken for current moment"
-        sys.exit(1)
-    elif args.update_distro:
-        repo_manage.update_distro_metadata(args.update_distro, force=True)
-    elif args.duploader_daemon:
+    if args.duploader_daemon:
         duploader.start_duploader()
     elif args.repo_daemon:
         repo_daemon.start_daemon()
-    elif args.dmove:
-        repo_manage.dmove_package(pkg=args.dmove[0], ver=args.dmove[1],
-                                  repo=args.repo, src=args.__getattribute__('from'), dst=args.to)
-    # elif args.import_repo:
-    #    dist_importer.import_repo(repo_url=args.import_repo, repo=args.repo, env=args.env)
+    elif args.update_distro:
+        repo_manage.update_distro_metadata(args.update_distro, force=True)
+    else:
+        # default action is to start both duploader daemon and repo daemon
+        from multiprocessing import Process
 
+        repod = Process(target=repo_daemon.start_daemon)
+        duploaderd = Process(target=duploader.start_duploader)
+        repod.start()
+        duploaderd.start()
+        repod.join()
+        duploaderd.join()
 
 if __name__ == '__main__':
     main()
