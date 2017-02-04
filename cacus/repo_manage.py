@@ -185,6 +185,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
             raise common.TemporaryError("Cannot lock distro: {0}".format(e))
     else:
         log.info("No changes made on distro %s/%s, skipping metadata update", distro, comp)
+    return meta
 
 
 def update_distro_metadata(distro, comps=None, arches=None, force=False):

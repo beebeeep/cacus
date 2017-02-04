@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import os
+import json
+import time
+import uuid
+import motor
+import logging
+import email.utils
 
 from tornado.ioloop import IOLoop
-from tornado.web import RequestHandler, Application, url, MissingArgumentError, Finish
+from tornado.web import RequestHandler, Application, url, MissingArgumentError, Finish, stream_request_body
 from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
-import logging
-import motor
-import email.utils
-import time
-import json
-import os
 
 import common
 import repo_manage
@@ -178,7 +179,7 @@ class SourcesFilesHandler(CachedRequestHandler):
     @gen.coroutine
     def get(self, distro=None, comp=None, file=None):
         db = self.settings['db']
-        doc = yield db.repos[distro].find_one({'component': comp, 'sources.name': file},
+        doc = yield dbcacus.repos[distro].find_one({'component': comp, 'sources.name': file},
                                               {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
@@ -278,6 +279,70 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         else:
             self.set_status(200)
             self.write({'success': True, 'msg': 'repo settings updated'})
+
+
+@stream_request_body
+class ApiPkgUploadHandler(RequestHandler):
+    """Upload single package to non-strict repo.
+
+    Possible implementations: nginx upload_pass (RFC 1867 multipart/form-data only)? tornado.iostream? common.ProxyStream?
+    TODO: implement for strict repos? Uploading multiple files can be tricky for REST API, also this is covered by duploader.
+    """
+    _filename = None
+    _file = None
+
+    def prepare(self):
+        app_log.debug("Got some file: Content-Type %s, Content-Length %s",
+                      self.request.headers.get('Content-Type', 'N/A'), self.request.headers.get('Content-Length', 'N/A'))
+        self._filename = os.path.join(common.config['duploader_daemon']['incoming_root'], str(uuid.uuid1()) + ".deb")
+        try:
+            self._file = open(self._filename, 'w')
+        except Exception as e:
+            self.set_status(500)
+            self.write({'success': False, 'msg': e.message})
+            self.finish()
+
+    def on_finish(self):
+        try:
+            if self._file and not self._file.closed:
+                self._file.close()
+            if os.path.isfile(self._filename):
+                os.unlink(self._filename)
+        except Exception as e:
+            app_log.error("Cannot delete %s: %s", self._filename, e)
+
+    @gen.coroutine
+    def data_received(self, data):
+        yield self.settings['workers'].submit(self._write_data, data)
+
+    def _write_data(self, data):
+        self._file.write(data)
+        self._file.flush()
+
+    @gen.coroutine
+    def put(self, distro, comp):
+        try:
+            distro_settings = yield self.settings['db'].cacus.distros.find_one({'distro': distro}, {'strict': 1})
+            if not distro_settings:
+                raise common.NotFound("Distribution '{}' was not found".format(distro))
+            if distro_settings['strict']:
+                raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
+
+            r = yield self.settings['workers'].submit(repo_manage.upload_package, distro, comp, [self._filename], changes=None, forceUpdateMeta=True)
+            self.set_status(201)
+            self.write({'success': True, 'msg': "Package {0[Source]}_{0[Version]} was uploaded to {1}/{2}".format(r, distro, comp)})
+        except common.NotFound as e:
+            self.set_status(404)
+            self.write({'success': False, 'msg': e.message})
+        except common.TemporaryError as e:
+            # TODO retries
+            # timeout on dmove can only if we cannot lock the distro,
+            # i.e. there is some other operation processing current distro
+            self.set_status(409)
+            self.write({'success': False, 'msg': e.message})
+        except (common.FatalError, Exception) as e:
+            self.set_status(400)
+            self.write({'success': False, 'msg': e.message})
 
 
 class ApiPkgCopyHandler(JsonRequestHandler):
@@ -414,6 +479,7 @@ def make_app():
 
     # REST API
     # Package operations
+    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
@@ -430,6 +496,7 @@ def make_app():
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler),
         url(storage_re, StorageHandler),
+        url(api_pkg_upload_re, ApiPkgUploadHandler),
         url(api_pkg_copy_re, ApiPkgCopyHandler),
         url(api_pkg_remove_re, ApiPkgRemoveHandler),
         url(api_pkg_search_re, ApiPkgSearchHandler),

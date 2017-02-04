@@ -67,6 +67,9 @@ curl -X POST  -vks 'localhost/debian/api/v1/distro/snapshot/test-repo/snap1'
 # List snapshots of "test-repo"
 curl -vks 'localhost/debian/api/v1/distro/snapshot/test-repo'
 
+# Upload package to distribution "common", component "unstable"
+curl -vks -T hello-world_0.1-1ubuntu1_amd64.deb localhost/debian/api/v1/package/upload/common/unstable
+
 # Copy package hello-world=0.1 from "unstable" to "stable" components
 curl -X POST  -vks 'localhost/debian/api/v1/package/copy/apt-test' \
   -d '{"pkg": "hello-world", "ver": "0.1", "from": "unstable", "to": "stable"}' -H 'Content-Type: application/json'
