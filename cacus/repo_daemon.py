@@ -179,8 +179,8 @@ class SourcesFilesHandler(CachedRequestHandler):
     @gen.coroutine
     def get(self, distro=None, comp=None, file=None):
         db = self.settings['db']
-        doc = yield dbcacus.repos[distro].find_one({'component': comp, 'sources.name': file},
-                                              {'sources.storage_key': 1, 'sources.name': 1})
+        doc = yield db.cacus.repos[distro].find_one({'component': comp, 'sources.name': file},
+                                                    {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
                 s = common.config['repo_daemon']
@@ -287,6 +287,9 @@ class ApiPkgUploadHandler(RequestHandler):
 
     Possible implementations: nginx upload_pass (RFC 1867 multipart/form-data only)? tornado.iostream? common.ProxyStream?
     TODO: implement for strict repos? Uploading multiple files can be tricky for REST API, also this is covered by duploader.
+    XXX: note that file is uploaded under some random name (we assume that storage can neither preserve file name,
+         nor update stored files). So multiple uploads of same package may leave orhpaned files in storage -
+         though that could be a problem only for really huge repos. Storage cleanup is possible but a bit tricky.
     """
     _filename = None
     _file = None
@@ -298,6 +301,7 @@ class ApiPkgUploadHandler(RequestHandler):
         try:
             self._file = open(self._filename, 'w')
         except Exception as e:
+            app_log.error("Cannot open temporary file: %s", e.message)
             self.set_status(500)
             self.write({'success': False, 'msg': e.message})
             self.finish()
@@ -331,6 +335,7 @@ class ApiPkgUploadHandler(RequestHandler):
             r = yield self.settings['workers'].submit(repo_manage.upload_package, distro, comp, [self._filename], changes=None, forceUpdateMeta=True)
             self.set_status(201)
             self.write({'success': True, 'msg': "Package {0[Source]}_{0[Version]} was uploaded to {1}/{2}".format(r, distro, comp)})
+
         except common.NotFound as e:
             self.set_status(404)
             self.write({'success': False, 'msg': e.message})
@@ -341,6 +346,7 @@ class ApiPkgUploadHandler(RequestHandler):
             self.set_status(409)
             self.write({'success': False, 'msg': e.message})
         except (common.FatalError, Exception) as e:
+            app_log.error("Erorr processing incoming package: %s", e.message)
             self.set_status(400)
             self.write({'success': False, 'msg': e.message})
 

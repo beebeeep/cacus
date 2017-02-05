@@ -92,6 +92,7 @@ def initialize(config_file):
 
     config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')
     config['repo_daemon']['storage_subdir'] = config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
+    config['db']['connect'] = False
     db = pymongo.MongoClient(**(config['db']))
     db_cacus = db['cacus']
     db_packages = db['packages']
