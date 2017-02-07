@@ -172,9 +172,9 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         # critical section. updating meta DB
         try:
             with common.DistroLock(distro, [comp]):
-                common.db_packages.packages.find_one_and_update(
+                common.db_packages[distro].find_one_and_update(
                         {'Source': meta['Source'], 'Version': meta['Version']},
-                        {'$set': meta, '$addToSet': {'repos': {'distro': distro, 'component': comp}}},
+                        {'$set': meta, '$addToSet': {'components': comp}},
                         upsert=True)
                 if not skipUpdateMeta:
                     if len(affected_arches) == 1 and 'all' in affected_arches:
@@ -324,8 +324,8 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
 
 def generate_sources_file(distro, comp):
     data = common.myStringIO()
-    component = common.db_packages.packages.find(
-        {'repos': {'distro': distro, 'component': comp}, 'dsc': {'$exists': True}},
+    component = common.db_packages[distro].find(
+        {'components': comp, 'dsc': {'$exists': True}},
         {'dsc': 1, 'sources': 1})
     for pkg in component:
         for k, v in pkg['dsc'].iteritems():
@@ -357,7 +357,7 @@ def generate_sources_file(distro, comp):
 def generate_packages_file(distro, comp, arch):
     log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
     data = common.myStringIO()
-    distro = common.db_packages.packages.find({'repos': {'distro': distro, 'component': comp}, 'debs.Architecture': {'$in': [arch, 'all']}})
+    distro = common.db_packages[distro].find({'components': comp, 'debs.Architecture': {'$in': [arch, 'all']}})
     for pkg in distro:
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
@@ -385,9 +385,9 @@ def generate_packages_file(distro, comp, arch):
 def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=False):
     try:
         with common.DistroLock(distro, [comp]):
-            result = common.db_packages.packages.find_one_and_update(
-                {'Source': pkg, 'Version': ver, 'repos': {'distro': distro, 'component': comp}},
-                {'$pullAll': {'repos': [{'distro': distro, 'component': comp}]}},
+            result = common.db_packages[distro].find_one_and_update(
+                {'Source': pkg, 'Version': ver, 'components': comp},
+                {'$pullAll': {'components': [comp]}},
                 projection={'debs.Architecture': 1, 'component': 1},
                 upsert=False,
                 return_document=ReturnDocument.BEFORE
@@ -411,10 +411,10 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=F
 def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
     try:
         with common.DistroLock(distro, [src, dst]):
-            result = common.db_packages.packages.find_one_and_update(
-                {'Source': pkg, 'Version': ver, 'repos': {'distro': distro, 'component': src}},
-                {'$addToSet': {'repos': {'$each': [{'distro': distro, 'component': dst}]}}},
-                projection={'repos': 1, 'debs.Architecture': 1, 'component': 1},
+            result = common.db_packages[distro].find_one_and_update(
+                {'Source': pkg, 'Version': ver, 'components': src},
+                {'$addToSet': {'components': {'$each': [dst]}}},
+                projection={'components': 1, 'debs.Architecture': 1, 'component': 1},
                 upsert=False,
                 return_document=ReturnDocument.BEFORE
             )
@@ -422,8 +422,8 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
                 log.error(msg)
                 raise common.NotFound(msg)
-            elif dst in [x['component'] for x in result['repos']]:
-                msg = "Package '{}_{}' is already in '{}/{}'".format(pkg, ver, distro, src)
+            elif dst in result['components']:
+                msg = "Package '{}_{}' is already in '{}/{}'".format(pkg, ver, distro, dst)
                 log.warning(msg)
                 return msg
 

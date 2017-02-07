@@ -379,11 +379,10 @@ class ApiPkgCopyHandler(JsonRequestHandler):
 class ApiPkgRemoveHandler(JsonRequestHandler):
 
     @gen.coroutine
-    def post(self, distro=None):
+    def post(self, distro=None, comp=None):
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
-        comp = req['comp']
 
         try:
             r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro, pkg=pkg, ver=ver, comp=comp)
@@ -487,7 +486,7 @@ def make_app():
     # Package operations
     api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)$"
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
