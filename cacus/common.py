@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import yaml
+import uuid
 import gnupg
 import pymongo
 import hashlib
@@ -12,6 +13,7 @@ import requests
 import logging
 import logging.handlers
 import StringIO
+from binascii import hexlify
 from threading import Event
 from itertools import chain, repeat
 from tornado.ioloop import IOLoop
@@ -72,7 +74,7 @@ def setup_logger(name):
 
 
 def initialize(config_file):
-    global config, db, db_packages, db_cacus, gpg
+    global config, db, gpg
     if not config_file:
         if os.path.isfile('/etc/cacus.yml'):
             config_file = '/etc/cacus.yml'
@@ -92,6 +94,11 @@ def initialize(config_file):
 
     config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')
     config['repo_daemon']['storage_subdir'] = config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
+    connect_mongo()
+
+
+def connect_mongo():
+    global db_cacus, db_packages
     config['db']['connect'] = False
     db = pymongo.MongoClient(**(config['db']))
     db_cacus = db['cacus']
@@ -135,23 +142,42 @@ def desanitize_filename(file):
     return file.replace("___", ".")
 
 
-def download_file(url, filename):
+def download_file(url, filename=None, md5=None, sha1=None, sha256=None):
     log = logging.getLogger("cacus.downloader")
+    if not filename:
+        filename = os.path.join(config['duploader_daemon']['incoming_root'], "cacus_tmp_" + str(uuid.uuid1()))
+
     try:
         total_bytes = 0
+        log.debug("Downloading %s to %s", url, filename)
         r = requests.get(url, stream=True)
-        log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
         if r.status_code == 200:
+            _md5 = hashlib.md5()
+            _sha1 = hashlib.sha1()
+            _sha256 = hashlib.sha256()
             with open(filename, 'w') as f:
                 for chunk in r.iter_content(4*1024*1024):
                     total_bytes += len(chunk)
                     f.write(chunk)
+                    _md5.update(chunk)
+                    _sha1.update(chunk)
+                    _sha256.update(chunk)
+                _md5 = _md5.digest()
+                _sha1 = _sha1.digest()
+                _sha256 = _sha256.digest()
+            if sha256 and sha256 != _sha256:
+                raise TemporaryError("SHA256 mismatch for {}: got {} instead of {}".format(url, hexlify(_sha256), hexlify(sha256)))
+            if sha1 and sha1 != _sha1:
+                raise TemporaryError("SHA1 mismatch for {}: got {} instead of {}".format(url, hexlify(_sha1), hexlify(sha1)))
+            if md5 and md5 != _md5:
+                raise TemporaryError("MD5 mismatch for {}: got {} instead of {}".format(url, hexlify(_md5), hexlify(md5)))
         elif r.status_code == 404:
             r.close()
             raise NotFound("{} returned {} {}".format(url, r.status_code, r.reason))
         else:
             r.close()
             raise TemporaryError("{} returned {} {}".format(url, r.status_code, r.reason))
+        log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
         r.close()
     except (requests.ConnectionError, requests.HTTPError) as e:
         raise TemporaryError("Cannot fetch {}: {}".format(url, e))
@@ -159,6 +185,8 @@ def download_file(url, filename):
         raise Timeout("Cannot fetch {}: {}".format(url, e))
     except IOError as e:
         raise FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
+
+    return filename
 
 
 def gpg_sign(data):

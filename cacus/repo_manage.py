@@ -135,6 +135,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
     meta = {}
+    debs = []
     affected_arches = set()
     for file in files:
         filename = os.path.basename(file)
@@ -145,11 +146,8 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
         if file.endswith('.deb') or file.endswith('.udeb'):
-            if 'debs' not in meta:
-                meta['debs'] = []
-
             deb = _process_deb_file(file, storage_key)
-            meta['debs'].append(deb)
+            debs.append(deb)
         else:
             if 'sources' not in meta:
                 meta['sources'] = []
@@ -164,17 +162,17 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         else:
             # if changes file is not present (i.e. we are uploading single deb file in non-strict repo),
             # take package name and version from 1st (which also should be last) deb file
-            meta['Source'] = meta['debs'][0]['Package']
-            meta['Version'] = meta['debs'][0]['Version']
+            meta['Source'] = debs[0]['Package']
+            meta['Version'] = debs[0]['Version']
 
-    affected_arches.update(x['Architecture'] for x in meta['debs'])
+    affected_arches.update(x['Architecture'] for x in debs)
     if affected_arches:
         # critical section. updating meta DB
         try:
             with common.DistroLock(distro, [comp]):
                 common.db_packages[distro].find_one_and_update(
                         {'Source': meta['Source'], 'Version': meta['Version']},
-                        {'$set': meta, '$addToSet': {'components': comp}},
+                        {'$set': meta, '$addToSet': {'components': comp, 'debs': {'$each': debs}}},
                         upsert=True)
                 if not skipUpdateMeta:
                     if len(affected_arches) == 1 and 'all' in affected_arches:
@@ -361,7 +359,7 @@ def generate_packages_file(distro, comp, arch):
     for pkg in distro:
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
-            log.debug("Processing %s", pkg['Source'])
+            log.debug("Processing %s_%s", pkg['Source'], pkg['Version'])
             for k, v in deb.iteritems():
                 if k == 'md5':
                     string = "MD5sum: {0}\n".format(hexlify(v))
@@ -413,7 +411,7 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
         with common.DistroLock(distro, [src, dst]):
             result = common.db_packages[distro].find_one_and_update(
                 {'Source': pkg, 'Version': ver, 'components': src},
-                {'$addToSet': {'components': {'$each': [dst]}}},
+                {'$addToSet': {'components': dst}},
                 projection={'components': 1, 'debs.Architecture': 1, 'component': 1},
                 upsert=False,
                 return_document=ReturnDocument.BEFORE

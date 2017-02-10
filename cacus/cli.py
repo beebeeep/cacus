@@ -26,7 +26,7 @@ import common
 import repo_manage
 import repo_daemon
 import duploader
-# import dist_importer
+import distro_importer
 import plugin
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
@@ -44,6 +44,7 @@ def main():
     op_type.add_argument('--duploader-daemon', action='store_true', help='Start duploader daemon')
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
     op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
+    op_type.add_argument('--import-distro', type=str, nargs=2, metavar=('URL', 'NAME'), help='Import distribution')
     """
     op_type.add_argument('--upload', action='store_true', help='Upload package(s)')
     op_type.add_argument('--remove', action='store_true', help='Remove package(s)')
@@ -90,6 +91,8 @@ def main():
         repo_daemon.start_daemon()
     elif args.update_distro:
         repo_manage.update_distro_metadata(args.update_distro, force=True)
+    elif args.import_distro:
+        distro_importer.import_distro(args.import_distro[0], args.import_distro[1])
     else:
         # default action is to start both duploader daemon and repo daemon
         from multiprocessing import Process
