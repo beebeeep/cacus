@@ -74,6 +74,7 @@ def _process_source_file(file, storage_key):
 
 def _create_release(distro, settings=None, ts=None):
 
+    log.info("Creating Release for distribution %s", distro)
     packages = list(common.db_cacus.repos.find({'distro': distro}))
     sources = list(common.db_cacus.components.find({'distro': distro}))
     if settings:

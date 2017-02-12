@@ -476,22 +476,22 @@ def make_app():
     s = common.config['repo_daemon']
 
     # APT interface. Using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
-    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/Release(?P<gpg>\.gpg)?$"
-    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
-    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/source/Sources$"
-    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
+    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/Release(?P<gpg>\.gpg)?$"
+    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/source/Sources$"
+    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/source/(?P<file>.*)$"
     storage_re = os.path.join(s['repo_base'], s['storage_subdir']) + r"/(?P<key>.*)$"
 
     # REST API
     # Package operations
-    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)$"
+    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)$"
+    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9]+)(?:/(?P<snapshot>[-_.A-Za-z0-9]+))?$"
+    api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
+    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)(?:/(?P<snapshot>[-_.A-Za-z0-9]+))?$"
     # Misc/unknown/obsolete
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 

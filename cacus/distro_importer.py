@@ -47,7 +47,8 @@ def import_distro(base_url, distro, components=None, arches=None):
 
     release_url = _urljoin(base_url, 'dists', distro, 'Release')
     release_filename = common.download_file(release_url)
-    import_errors = []
+    packages = 0
+    errors = []
 
     try:
         with open(release_filename) as f:
@@ -60,42 +61,45 @@ def import_distro(base_url, distro, components=None, arches=None):
             if m:
                 components.add(m.group('comp'))
                 logging.debug("Found %s/%s/%s", distro, m.group('comp'), m.group('arch'))
-                errors = import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'])
-                import_errors.extend(errors)
+                p, e = import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'])
+                packages += p
+                errors.extend(e)
         meta = {'distro': distro, 'imported': {'from': base_url},
                 'description': release.get('Description', 'N/A')}
-        common.db_cacus.repos.find_one_and_update({'distro': distro},
-                                                  {'$set': meta},
-                                                  upsert=True)
+        common.db_cacus.distros.find_one_and_update({'distro': distro},
+                                                    {'$set': meta},
+                                                    upsert=True)
 
-        repo_manage.update_distro_metadata(distro, components, arches)
+        repo_manage.update_distro_metadata(distro, components, arches, force=True)
     finally:
         try:
             os.unlink(release_filename)
         except:
             pass
-    logging.info("Distribution %s was imported with %s import errors", len(import_errors))
+    logging.info("Distribution %s: imported %s packages, %s import errors", distro, packages, len(errors))
 
 
 def import_repo(base_url, distro, ext, comp, arch, sha256):
     packages_url = _urljoin(base_url, 'dists', distro, comp, arch, 'Packages.' + ext)
     packages_filename = common.download_file(packages_url, sha256=binascii.unhexlify(sha256))
-    errors = []
+    pkgs = 0
+    errs = []
     try:
         with open(packages_filename) as f:
             for package in deb822.Packages.iter_paragraphs(f):
                 try:
                     import_package(base_url, distro, comp, package)
+                    pkgs += 1
                 except Exception as e:
                     logging.error("Error importing package %s_%s_s: %s",
                                   package['Package'], package['Version'], package['Architecture'], e)
-                    errors.append(package)
+                    errs.append(package)
     finally:
         try:
             os.unlink(packages_filename)
         except:
             pass
-    return errors
+    return pkgs, errs
 
 
 def import_package(base_url, distro, comp, package):

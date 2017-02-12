@@ -17,7 +17,9 @@ db:
   # threat this subtree as kwargs to pymongo.MongoClient(),
   # for example, add replicaSet option if you want to connect to replicaset 
   host: 
-    - localhost:27017
+    - mongodb://cacus:secret@example.org:27017
+  ssl: True
+  socketKeepAlive: true
 
 repo_daemon:
   port: 1488
