@@ -41,6 +41,7 @@ def main():
     parser.add_argument('-v', '--verbosity', type=str, default='error',
                         help='Log file verbosity (default is "error")')
     op_type = parser.add_mutually_exclusive_group()
+    op_type.add_argument('--create-indexes', action='store_true', help='Create MongoDB indexes')
     op_type.add_argument('--duploader-daemon', action='store_true', help='Start duploader daemon')
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
     op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
@@ -93,6 +94,9 @@ def main():
         repo_manage.update_distro_metadata(args.update_distro, force=True)
     elif args.import_distro:
         distro_importer.import_distro(args.import_distro[0], args.import_distro[1])
+    elif args.create_indexes:
+        common.create_cacus_indexes()
+        common.create_packages_indexes()
     else:
         # default action is to start both duploader daemon and repo daemon
         from multiprocessing import Process

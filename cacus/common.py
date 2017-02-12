@@ -105,6 +105,47 @@ def connect_mongo():
     db_packages = db['packages']
 
 
+def create_cacus_indexes():
+    log = logging.getLogger("cacus.common")
+    log.info("Creating indexes for cacus.distros...")
+    db_cacus.distros.create_index('distro', unique=True)
+    db_cacus.distros.create_index('snapshot')
+
+    log.info("Creating indexes for cacus.components...")
+    db_cacus.components.create_index(
+        [('distro', pymongo.DESCENDING),
+        ('component', pymongo.DESCENDING)],
+        unique=True)
+    db_cacus.components.create_index('snapshot')
+
+    log.info("Creating indexes for cacus.repos...")
+    db_cacus.repos.create_index(
+        [('distro', pymongo.DESCENDING),
+        ('component', pymongo.DESCENDING),
+        ('architecture', pymongo.DESCENDING)],
+        unique=True)
+
+    log.info("Creating indexes for cacus.locks...")
+    db_cacus.locks.create_index([
+        ('distro', pymongo.DESCENDING),
+        ('comp', pymongo.DESCENDING)],
+        unique=True)
+
+
+def create_packages_indexes(distros=None):
+    log = logging.getLogger("cacus.common")
+    if not distros:
+        distros = db_packages.collection_names()
+
+    for distro in distros:
+        log.info("Creating indexes for packages.%s...", distro)
+        db_packages[distro].create_index(
+            [('Source', pymongo.DESCENDING),
+            ('Version', pymongo.DESCENDING)],
+            unique=True)
+        db_packages[distro].create_index('components')
+
+
 def get_hashes(file=None, filename=None):
     if filename:
         file = open(filename)

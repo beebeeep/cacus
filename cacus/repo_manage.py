@@ -293,7 +293,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
         if not force and old_component and 'sources_file' in old_component:
             old_key = old_component['sources_file']
             snapshots = common.db_cacus.components.find(
-                {'snapshot.origin': distro, 'component': comp},
+                {'snapshot': {'origin': distro}, 'component': comp},
                 {'sources_file': 1})
             for snapshot in snapshots:
                 if snapshot['sources_file'] == old_key:
@@ -444,7 +444,7 @@ def _get_snapshot_name(distro, name):
 
 def delete_snapshot(distro, name):
     snapshot_name = _get_snapshot_name(distro, name)
-    if not common.db_cacus.distros.find_one({'snapshot.name': name, 'snapshot.origin': distro}):
+    if not common.db_cacus.distros.find_one({'snapshot': {'name': name, 'origin': distro}}):
         raise common.NotFound("Snapshot '{}' does not exist".format(name))
 
     try:
