@@ -104,6 +104,19 @@ class StorageHandler(RequestHandler):
         yield self.stream_from_storage(key)
 
 
+class ExtStorageHandler(RequestHandler):
+    """ Redirects to external location.
+    APT should support redirects since version 0.7.21 (see https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=79002)
+    """
+
+    @gen.coroutine
+    def get(self, url):
+        # unescaping being performed here automagical?
+        # url = escape.url_unescape(url)
+        self.set_header('Location', url)
+        self.set_status(302)
+
+
 class PackagesHandler(CachedRequestHandler, StorageHandler):
 
     @gen.coroutine
@@ -481,6 +494,7 @@ def make_app():
     sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/source/Sources$"
     sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/source/(?P<file>.*)$"
     storage_re = os.path.join(s['repo_base'], s['storage_subdir']) + r"/(?P<key>.*)$"
+    extstorage_re = s['repo_base'] + r"/extstorage/(?P<url>.*)$"
 
     # REST API
     # Package operations
@@ -501,6 +515,7 @@ def make_app():
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler),
         url(storage_re, StorageHandler),
+        url(extstorage_re, ExtStorageHandler),
         url(api_pkg_upload_re, ApiPkgUploadHandler),
         url(api_pkg_copy_re, ApiPkgCopyHandler),
         url(api_pkg_remove_re, ApiPkgRemoveHandler),

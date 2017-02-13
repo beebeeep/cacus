@@ -371,7 +371,11 @@ def generate_packages_file(distro, comp, arch):
                 elif k == 'sha512':
                     string = "SHA512: {0}\n".format(hexlify(v))
                 elif k == 'storage_key':
-                    string = "Filename: {0}\n".format(os.path.join(common.config['repo_daemon']['storage_subdir'], v))
+                    if v.startswith('extstorage'):
+                        path = v
+                    else:
+                        path = os.path.join(common.config['repo_daemon']['storage_subdir'], v)
+                    string = "Filename: {0}\n".format(path)
                 else:
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)

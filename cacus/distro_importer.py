@@ -84,6 +84,7 @@ def import_repo(base_url, distro, ext, comp, arch, sha256):
     packages_filename = common.download_file(packages_url, sha256=binascii.unhexlify(sha256))
     pkgs = 0
     errs = []
+    # TODO: cleanup (?) previous distro collection in db_packages and create indexes there
     try:
         with open(packages_filename) as f:
             for package in deb822.Packages.iter_paragraphs(f):
@@ -107,7 +108,7 @@ def import_package(base_url, distro, comp, package):
     version = package['Version']
     logging.debug("Importing package %s_%s_%s to %s/%s", source, version, package['Architecture'], distro, comp)
     # TODO: full import option. For now we import only metadata and just proxying requests for actual files to original repo
-    package['storage_key'] = _urljoin("extstorage/", urllib.quote(base_url), package.pop('Filename'))
+    package['storage_key'] = _urljoin("extstorage/", urllib.quote_plus(base_url), urllib.quote_plus(package.pop('Filename')))
     doc = {
         'Source': source,
         'Version': version
