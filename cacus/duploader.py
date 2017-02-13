@@ -159,7 +159,7 @@ def start_duploader():
     try:
         while True:
             # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
-            new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}}))
+            new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}, 'imported': {'$exists': False}}))
             for watcher in new_watchers:
                 if watcher['distro'] not in watchers:
                     incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])

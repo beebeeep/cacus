@@ -104,6 +104,19 @@ class StorageHandler(RequestHandler):
         yield self.stream_from_storage(key)
 
 
+class ExtStorageHandler(RequestHandler):
+    """ Redirects to external location.
+    APT should support redirects since version 0.7.21 (see https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=79002)
+    """
+
+    @gen.coroutine
+    def get(self, url):
+        # unescaping being performed here automagical?
+        # url = escape.url_unescape(url)
+        self.set_header('Location', url)
+        self.set_status(302)
+
+
 class PackagesHandler(CachedRequestHandler, StorageHandler):
 
     @gen.coroutine
@@ -379,11 +392,10 @@ class ApiPkgCopyHandler(JsonRequestHandler):
 class ApiPkgRemoveHandler(JsonRequestHandler):
 
     @gen.coroutine
-    def post(self, distro=None):
+    def post(self, distro=None, comp=None):
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
-        comp = req['comp']
 
         try:
             r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro, pkg=pkg, ver=ver, comp=comp)
@@ -477,22 +489,23 @@ def make_app():
     s = common.config['repo_daemon']
 
     # APT interface. Using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
-    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/Release(?P<gpg>\.gpg)?$"
-    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/binary-(?P<arch>\w+)/Packages$"
-    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/source/Sources$"
-    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@]+)/(?P<comp>\w+)/source/(?P<file>.*)$"
+    release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/Release(?P<gpg>\.gpg)?$"
+    packages_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/binary-(?P<arch>\w+)/Packages$"
+    sources_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/source/Sources$"
+    sources_files_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/(?P<comp>[-_a-z0-9]+)/source/(?P<file>.*)$"
     storage_re = os.path.join(s['repo_base'], s['storage_subdir']) + r"/(?P<key>.*)$"
+    extstorage_re = s['repo_base'] + r"/extstorage/(?P<url>.*)$"
 
     # REST API
     # Package operations
-    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>\w+)$"
+    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9]+)$"
-    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9]+)(?:/(?P<snapshot>[-_.A-Za-z0-9]+))?$"
+    api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
+    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)(?:/(?P<snapshot>[-_.A-Za-z0-9]+))?$"
     # Misc/unknown/obsolete
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
@@ -502,6 +515,7 @@ def make_app():
         url(sources_re, SourcesHandler),
         url(sources_files_re, SourcesFilesHandler),
         url(storage_re, StorageHandler),
+        url(extstorage_re, ExtStorageHandler),
         url(api_pkg_upload_re, ApiPkgUploadHandler),
         url(api_pkg_copy_re, ApiPkgCopyHandler),
         url(api_pkg_remove_re, ApiPkgRemoveHandler),

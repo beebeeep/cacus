@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="cacus",
-    version="0.2",
+    version="0.3",
     author="Danila Migalin",
     author_email="me@miga.me.uk",
     url="https://github.com/beebeeep/cacus",

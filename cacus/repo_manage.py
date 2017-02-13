@@ -74,6 +74,7 @@ def _process_source_file(file, storage_key):
 
 def _create_release(distro, settings=None, ts=None):
 
+    log.info("Creating Release for distribution %s", distro)
     packages = list(common.db_cacus.repos.find({'distro': distro}))
     sources = list(common.db_cacus.components.find({'distro': distro}))
     if settings:
@@ -135,6 +136,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
     # files is array of files of .deb, .dsc, .tar.gz and .changes
     # these files are belongs to single package
     meta = {}
+    debs = []
     affected_arches = set()
     for file in files:
         filename = os.path.basename(file)
@@ -145,11 +147,8 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
 
         if file.endswith('.deb') or file.endswith('.udeb'):
-            if 'debs' not in meta:
-                meta['debs'] = []
-
             deb = _process_deb_file(file, storage_key)
-            meta['debs'].append(deb)
+            debs.append(deb)
         else:
             if 'sources' not in meta:
                 meta['sources'] = []
@@ -164,17 +163,17 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
         else:
             # if changes file is not present (i.e. we are uploading single deb file in non-strict repo),
             # take package name and version from 1st (which also should be last) deb file
-            meta['Source'] = meta['debs'][0]['Package']
-            meta['Version'] = meta['debs'][0]['Version']
+            meta['Source'] = debs[0]['Package']
+            meta['Version'] = debs[0]['Version']
 
-    affected_arches.update(x['Architecture'] for x in meta['debs'])
+    affected_arches.update(x['Architecture'] for x in debs)
     if affected_arches:
         # critical section. updating meta DB
         try:
             with common.DistroLock(distro, [comp]):
-                common.db_packages.packages.find_one_and_update(
+                common.db_packages[distro].find_one_and_update(
                         {'Source': meta['Source'], 'Version': meta['Version']},
-                        {'$set': meta, '$addToSet': {'repos': {'distro': distro, 'component': comp}}},
+                        {'$set': meta, '$addToSet': {'components': comp, 'debs': {'$each': debs}}},
                         upsert=True)
                 if not skipUpdateMeta:
                     if len(affected_arches) == 1 and 'all' in affected_arches:
@@ -324,8 +323,8 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
 
 def generate_sources_file(distro, comp):
     data = common.myStringIO()
-    component = common.db_packages.packages.find(
-        {'repos': {'distro': distro, 'component': comp}, 'dsc': {'$exists': True}},
+    component = common.db_packages[distro].find(
+        {'components': comp, 'dsc': {'$exists': True}},
         {'dsc': 1, 'sources': 1})
     for pkg in component:
         for k, v in pkg['dsc'].iteritems():
@@ -357,11 +356,11 @@ def generate_sources_file(distro, comp):
 def generate_packages_file(distro, comp, arch):
     log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
     data = common.myStringIO()
-    distro = common.db_packages.packages.find({'repos': {'distro': distro, 'component': comp}, 'debs.Architecture': {'$in': [arch, 'all']}})
+    distro = common.db_packages[distro].find({'components': comp, 'debs.Architecture': {'$in': [arch, 'all']}})
     for pkg in distro:
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
-            log.debug("Processing %s", pkg['Source'])
+            log.debug("Processing %s_%s", pkg['Source'], pkg['Version'])
             for k, v in deb.iteritems():
                 if k == 'md5':
                     string = "MD5sum: {0}\n".format(hexlify(v))
@@ -372,7 +371,11 @@ def generate_packages_file(distro, comp, arch):
                 elif k == 'sha512':
                     string = "SHA512: {0}\n".format(hexlify(v))
                 elif k == 'storage_key':
-                    string = "Filename: {0}\n".format(os.path.join(common.config['repo_daemon']['storage_subdir'], v))
+                    if v.startswith('extstorage'):
+                        path = v
+                    else:
+                        path = os.path.join(common.config['repo_daemon']['storage_subdir'], v)
+                    string = "Filename: {0}\n".format(path)
                 else:
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)
@@ -385,9 +388,9 @@ def generate_packages_file(distro, comp, arch):
 def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=False):
     try:
         with common.DistroLock(distro, [comp]):
-            result = common.db_packages.packages.find_one_and_update(
-                {'Source': pkg, 'Version': ver, 'repos': {'distro': distro, 'component': comp}},
-                {'$pullAll': {'repos': [{'distro': distro, 'component': comp}]}},
+            result = common.db_packages[distro].find_one_and_update(
+                {'Source': pkg, 'Version': ver, 'components': comp},
+                {'$pullAll': {'components': [comp]}},
                 projection={'debs.Architecture': 1, 'component': 1},
                 upsert=False,
                 return_document=ReturnDocument.BEFORE
@@ -411,10 +414,10 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=F
 def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
     try:
         with common.DistroLock(distro, [src, dst]):
-            result = common.db_packages.packages.find_one_and_update(
-                {'Source': pkg, 'Version': ver, 'repos': {'distro': distro, 'component': src}},
-                {'$addToSet': {'repos': {'$each': [{'distro': distro, 'component': dst}]}}},
-                projection={'repos': 1, 'debs.Architecture': 1, 'component': 1},
+            result = common.db_packages[distro].find_one_and_update(
+                {'Source': pkg, 'Version': ver, 'components': src},
+                {'$addToSet': {'components': dst}},
+                projection={'components': 1, 'debs.Architecture': 1, 'component': 1},
                 upsert=False,
                 return_document=ReturnDocument.BEFORE
             )
@@ -422,8 +425,8 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
                 log.error(msg)
                 raise common.NotFound(msg)
-            elif dst in [x['component'] for x in result['repos']]:
-                msg = "Package '{}_{}' is already in '{}/{}'".format(pkg, ver, distro, src)
+            elif dst in result['components']:
+                msg = "Package '{}_{}' is already in '{}/{}'".format(pkg, ver, distro, dst)
                 log.warning(msg)
                 return msg
 
