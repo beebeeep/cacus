@@ -104,16 +104,16 @@ def import_repo(base_url, distro, ext, comp, arch, sha256):
 
 
 def import_package(base_url, distro, comp, package):
-    source = package.get('Source', None) or package['Package']
+    package = package['Package']
     version = package['Version']
-    logging.debug("Importing package %s_%s_%s to %s/%s", source, version, package['Architecture'], distro, comp)
+    logging.debug("Importing package %s_%s_%s to %s/%s", package, version, package['Architecture'], distro, comp)
     # TODO: full import option. For now we import only metadata and just proxying requests for actual files to original repo
     package['storage_key'] = _urljoin("extstorage/", urllib.quote_plus(base_url), urllib.quote_plus(package.pop('Filename')))
     doc = {
-        'Source': source,
+        'Package': package,
         'Version': version
         # TODO import dsc and sources
     }
-    common.db_packages[distro].find_one_and_update({'Source': source, 'Version': version},
-                                                   {'$set': doc, '$addToSet': {'debs': package, 'components': comp}},
+    common.db_packages[distro].find_one_and_update({'Package': package, 'Version': version},
+                                                   {'$set': doc, '$addToSet': {'components': comp}},
                                                    upsert=True)

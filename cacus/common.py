@@ -22,6 +22,7 @@ from tornado.ioloop import IOLoop
 config = None
 db = None
 db_packages = None
+db_sources = None
 db_cacus = None
 gpg = None
 default_arches = ['all', 'amd64', 'i386']
@@ -98,11 +99,12 @@ def initialize(config_file):
 
 
 def connect_mongo():
-    global db_cacus, db_packages
+    global db_cacus, db_packages, db_sources
     config['db']['connect'] = False
     db = pymongo.MongoClient(**(config['db']))
     db_cacus = db['cacus']
     db_packages = db['packages']
+    db_sources = db['sources']
 
 
 def create_cacus_indexes():
@@ -114,15 +116,15 @@ def create_cacus_indexes():
     log.info("Creating indexes for cacus.components...")
     db_cacus.components.create_index(
         [('distro', pymongo.DESCENDING),
-        ('component', pymongo.DESCENDING)],
+         ('component', pymongo.DESCENDING)],
         unique=True)
     db_cacus.components.create_index('snapshot')
 
     log.info("Creating indexes for cacus.repos...")
     db_cacus.repos.create_index(
         [('distro', pymongo.DESCENDING),
-        ('component', pymongo.DESCENDING),
-        ('architecture', pymongo.DESCENDING)],
+         ('component', pymongo.DESCENDING),
+         ('architecture', pymongo.DESCENDING)],
         unique=True)
 
     log.info("Creating indexes for cacus.locks...")
@@ -140,10 +142,16 @@ def create_packages_indexes(distros=None):
     for distro in distros:
         log.info("Creating indexes for packages.%s...", distro)
         db_packages[distro].create_index(
-            [('Source', pymongo.DESCENDING),
-            ('Version', pymongo.DESCENDING)],
+            [('Package', pymongo.DESCENDING),
+             ('Version', pymongo.DESCENDING)],
             unique=True)
         db_packages[distro].create_index('components')
+
+        db_sources[distro].create_index(
+            [('Source', pymongo.DESCENDING),
+             ('Version', pymongo.DESCENDING)],
+            unique=True)
+        db_sources[distro].create_index('components')
 
 
 def get_hashes(file=None, filename=None):

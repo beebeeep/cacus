@@ -347,7 +347,7 @@ class ApiPkgUploadHandler(RequestHandler):
 
             r = yield self.settings['workers'].submit(repo_manage.upload_package, distro, comp, [self._filename], changes=None, forceUpdateMeta=True)
             self.set_status(201)
-            self.write({'success': True, 'msg': "Package {0[Source]}_{0[Version]} was uploaded to {1}/{2}".format(r, distro, comp)})
+            self.write({'success': True, 'msg': "Package {0[Package]}_{0[Version]} was uploaded to {1}/{2}".format(r[0], distro, comp)})
 
         except common.NotFound as e:
             self.set_status(404)
