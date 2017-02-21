@@ -146,7 +146,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
 
         if file.endswith('.deb') or file.endswith('.udeb'):
             deb = _process_deb_file(file)
-            debs['storage_key'] = storage_key
+            deb['storage_key'] = storage_key
             debs.append(deb)
         else:
             if 'files' not in sources:
@@ -169,7 +169,8 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
                 for deb in debs:
                     common.db_packages[distro].find_one_and_update(
                         {'Package': deb['Package'], 'Version': deb['Version']},
-                        {'$set': deb, '$addToSet': {'components': comp}})
+                        {'$set': deb, '$addToSet': {'components': comp}},
+                        upsert=True)
 
                 common.db_sources[distro].find_one_and_update(
                         {'Source': sources['Source'], 'Version': sources['Version']},
@@ -260,7 +261,7 @@ def _update_sources(distro, comp, now, force):
     old_sources = common.db_cacus.components.find_one({'distro': distro, 'component': comp}, {'sources_file': 1})
     if not force and old_sources and md5.hexdigest() in old_sources.get('packages_file', ''):
         log.warn("Sources file for %s/%s not changed, skipping update", distro, comp)
-        continue
+        return
     base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
     storage_key = plugin.get_plugin('storage').put(base_key, file=sources)
 
@@ -337,7 +338,7 @@ def _generate_sources_file(distro, comp):
     data = common.myStringIO()
     component = common.db_sources[distro].find(
         {'components': comp, 'dsc': {'$exists': True}},
-        {'dsc': 1, 'sources': 1})
+        {'dsc': 1, 'files': 1})
     for pkg in component:
         for k, v in pkg['dsc'].iteritems():
             if k == 'Source':
@@ -346,7 +347,7 @@ def _generate_sources_file(distro, comp):
                 data.write("{0}: {1}\n".format(k.capitalize(), v))
         data.write("Directory: {}\n".format(common.config['repo_daemon']['storage_subdir']))
         # c-c-c-c-combo!
-        files = [x for x in pkg['sources'] if reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
+        files = [x for x in pkg['files'] if reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
 
         def gen_para(algo, files):
             for f in files:
@@ -414,7 +415,7 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=F
                 msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
                 log.info(msg)
                 if not skipUpdateMeta:
-                    log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, result['Architecture']))
+                    log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, result['Architecture'])
                     update_distro_metadata(distro, [comp], [result['Architecture']])
                 return msg
     except common.DistroLockTimeout as e:
@@ -444,7 +445,7 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
             log.info(msg)
 
             if not skipUpdateMeta:
-                log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, result['Architecture']))
+                log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, result['Architecture'])
                 update_distro_metadata(distro, [src, dst], [result['Architecture']])
             return msg
     except common.DistroLockTimeout as e:

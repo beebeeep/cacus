@@ -132,6 +132,7 @@ def create_cacus_indexes():
         ('distro', pymongo.DESCENDING),
         ('comp', pymongo.DESCENDING)],
         unique=True)
+    db_cacus.locks.create_index('modified', expireAfterSeconds=config['lock_timeout'])
 
 
 def create_packages_indexes(distros=None):

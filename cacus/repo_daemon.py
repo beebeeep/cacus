@@ -31,6 +31,10 @@ class CachedRequestHandler(RequestHandler):
 
     @gen.coroutine
     def _cache_expired(self, item, selector):
+        """ Checks whether item in DB was updated since client's latest version
+        TODO: i don't like this double-quering of DB, first for expiry check, than
+        for actual data. Should be redesigned.
+        """
         db = self.settings['db']
         latest_dt = None
         result = db.cacus[item].find(selector, {'lastupdated': 1})
@@ -38,6 +42,9 @@ class CachedRequestHandler(RequestHandler):
             dt = result.next_object()['lastupdated']
             if not latest_dt or dt > latest_dt:
                 latest_dt = dt
+
+        if not latest_dt:
+            raise gen.Return((True, None))
 
         if_modified = self.request.headers.get('If-Modified-Since')
         if not if_modified:
