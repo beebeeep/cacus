@@ -147,9 +147,10 @@ def create_packages_indexes(distros=None):
              ('Version', pymongo.DESCENDING)],
             unique=True)
         db_packages[distro].create_index('components')
+        db_packages[distro].create_index('source')
 
         db_sources[distro].create_index(
-            [('Source', pymongo.DESCENDING),
+            [('Package', pymongo.DESCENDING),
              ('Version', pymongo.DESCENDING)],
             unique=True)
         db_sources[distro].create_index('components')

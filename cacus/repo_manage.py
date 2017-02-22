@@ -414,16 +414,35 @@ def _generate_packages_file(distro, comp, arch):
     return data
 
 
-def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=False):
+def remove_package(pkg=None,  ver=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False):
+    affected_arches = []
     try:
         with common.DistroLock(distro, [comp]):
-            result = common.db_packages[distro].find_one_and_update(
-                {'Package': pkg, 'Version': ver, 'components': comp},
-                {'$pullAll': {'components': [comp]}},
-                projection={'meta.Architecture': 1, 'component': 1},
-                upsert=False,
-                return_document=ReturnDocument.BEFORE
-            )
+            if source_pkg:
+                # remove source package (if any) and all binary packages within it from component
+                result = common.db_sources[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'components': comp},
+                    {'$pullAll': {'components': [comp]}},
+                    projection={'meta.Architecture': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                if result:
+                    binaries = common.db_packages[distro].update_many(
+                        {'source': result['_id']},
+                        {'$pullAll': {'components': [comp]}})
+                    if binaries.modified_count:
+                        affected_arches = [x['meta']['Architecture'] for x in
+                                           common.db_packages[distro].find({'source': result['_id']}, {'meta.Architecture': 1})]
+            else:
+                result = common.db_packages[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'components': comp},
+                    {'$pullAll': {'components': [comp]}},
+                    projection={'meta.Architecture': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                affected_arches = [result['meta']['Architecture']] if result else []
             if not result:
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, comp)
                 log.error(msg)
@@ -432,23 +451,44 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=F
                 msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
                 log.info(msg)
                 if not skipUpdateMeta:
-                    log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, result['meta']['Architecture'])
-                    update_distro_metadata(distro, [comp], [result['meta']['Architecture']])
+                    log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
+                    update_distro_metadata(distro, [comp], affected_arches)
                 return msg
     except common.DistroLockTimeout as e:
         raise common.TemporaryError(e.message)
 
 
-def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
+def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
+    affected_arches = []
     try:
         with common.DistroLock(distro, [src, dst]):
-            result = common.db_packages[distro].find_one_and_update(
-                {'Package': pkg, 'Version': ver, 'components': src},
-                {'$addToSet': {'components': dst}},
-                projection={'components': 1, 'meta.Architecture': 1, 'component': 1},
-                upsert=False,
-                return_document=ReturnDocument.BEFORE
-            )
+            if source_pkg:
+                # move source package (if any) and all binary packages within it
+                result = common.db_sources[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'components': src},
+                    {'$addToSet': {'components': dst}},
+                    projection={'components': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                if result:
+                    binaries = common.db_packages[distro].update_many(
+                        {'source': result['_id']},
+                        {'$addToSet': {'components': dst}})
+                    if binaries.modified_count:
+                        affected_arches = [x['meta']['Architecture'] for x in
+                                           common.db_packages[distro].find({'source': result['_id']}, {'meta.Architecture': 1})]
+
+            else:
+                # touch only one specified package
+                result = common.db_packages[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'components': src},
+                    {'$addToSet': {'components': dst}},
+                    projection={'components': 1, 'meta.Architecture': 1, 'component': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                affected_arches = [result['meta']['Architecture']] if result else []
             if not result:
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
                 log.error(msg)
@@ -462,8 +502,8 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
             log.info(msg)
 
             if not skipUpdateMeta:
-                log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, result['meta']['Architecture'])
-                update_distro_metadata(distro, [src, dst], [result['meta']['Architecture']])
+                log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, affected_arches)
+                update_distro_metadata(distro, [src, dst], affected_arches)
             return msg
     except common.DistroLockTimeout as e:
         raise common.TemporaryError(e.message)
