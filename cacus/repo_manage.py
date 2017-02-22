@@ -159,6 +159,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
             debs.append({
                 'Package': deb['Package'],
                 'Version': deb['Version'],
+                'Architecture': deb['Architecture'],
                 'storage_key': storage_key,
                 'meta': deb
             })
@@ -177,7 +178,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
             src_pkg['Package'] = changes['Source']
             src_pkg['Version'] = changes['Version']
 
-    affected_arches.update(x['meta']['Architecture'] for x in debs)
+    affected_arches.update(x['Architecture'] for x in debs)
     if affected_arches:
         # critical section. updating meta DB
         try:
@@ -194,7 +195,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
                         # refer to source package, if any
                         deb['source'] = src['_id']
                     common.db_packages[distro].find_one_and_update(
-                        {'Package': deb['Package'], 'Version': deb['Version']},
+                        {'Package': deb['Package'], 'Version': deb['Version'], 'Architecture': deb['Architecture']},
                         {'$set': deb, '$addToSet': {'components': comp}},
                         upsert=True)
 
@@ -387,7 +388,7 @@ def _generate_packages_file(distro, comp, arch):
     log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
     data = common.myStringIO()
     # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
-    repo = common.db_packages[distro].find({'components': comp, 'meta.Architecture': {'$in': [arch, 'all']}})
+    repo = common.db_packages[distro].find({'components': comp, 'Architecture': {'$in': [arch, 'all']}})
     for pkg in repo:
         log.debug("Processing %s_%s", pkg['Package'], pkg['Version'])
 
@@ -414,7 +415,7 @@ def _generate_packages_file(distro, comp, arch):
     return data
 
 
-def remove_package(pkg=None,  ver=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False):
+def remove_package(pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False):
     affected_arches = []
     try:
         with common.DistroLock(distro, [comp]):
@@ -423,7 +424,7 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, source_pkg=False
                 result = common.db_sources[distro].find_one_and_update(
                     {'Package': pkg, 'Version': ver, 'components': comp},
                     {'$pullAll': {'components': [comp]}},
-                    projection={'meta.Architecture': 1},
+                    projection={'Architecture': 1},
                     upsert=False,
                     return_document=ReturnDocument.BEFORE
                 )
@@ -432,17 +433,20 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, source_pkg=False
                         {'source': result['_id']},
                         {'$pullAll': {'components': [comp]}})
                     if binaries.modified_count:
-                        affected_arches = [x['meta']['Architecture'] for x in
-                                           common.db_packages[distro].find({'source': result['_id']}, {'meta.Architecture': 1})]
+                        affected_arches = [x['Architecture'] for x in
+                                           common.db_packages[distro].find({'source': result['_id']}, {'Architecture': 1})]
             else:
+                if not arch:
+                    # dummy selector for all arches
+                    arch = {'$exists': True}
                 result = common.db_packages[distro].find_one_and_update(
-                    {'Package': pkg, 'Version': ver, 'components': comp},
+                    {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': comp},
                     {'$pullAll': {'components': [comp]}},
-                    projection={'meta.Architecture': 1},
+                    projection={'Architecture': 1},
                     upsert=False,
                     return_document=ReturnDocument.BEFORE
                 )
-                affected_arches = [result['meta']['Architecture']] if result else []
+                affected_arches = [result['Architecture']] if result else []
             if not result:
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, comp)
                 log.error(msg)
@@ -476,19 +480,22 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, source_pk
                         {'source': result['_id']},
                         {'$addToSet': {'components': dst}})
                     if binaries.modified_count:
-                        affected_arches = [x['meta']['Architecture'] for x in
-                                           common.db_packages[distro].find({'source': result['_id']}, {'meta.Architecture': 1})]
+                        affected_arches = [x['Architecture'] for x in
+                                           common.db_packages[distro].find({'source': result['_id']}, {'Architecture': 1})]
 
             else:
+                if not arch:
+                    # dummy selector for all arches
+                    arch = {'$exists': True}
                 # touch only one specified package
                 result = common.db_packages[distro].find_one_and_update(
-                    {'Package': pkg, 'Version': ver, 'components': src},
+                    {'Package': pkg, 'Version': ver, 'Architecure': arch, 'components': src},
                     {'$addToSet': {'components': dst}},
-                    projection={'components': 1, 'meta.Architecture': 1, 'component': 1},
+                    projection={'components': 1, 'Architecture': 1, 'component': 1},
                     upsert=False,
                     return_document=ReturnDocument.BEFORE
                 )
-                affected_arches = [result['meta']['Architecture']] if result else []
+                affected_arches = [result['Architecture']] if result else []
             if not result:
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
                 log.error(msg)
