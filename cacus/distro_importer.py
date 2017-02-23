@@ -54,21 +54,29 @@ def import_distro(base_url, distro, components=None, arches=None):
         with open(release_filename) as f:
             release = deb822.Release(f)
 
-        # TODO add LZMA (.xz) support. Appears that debian.deb822 can handle .gz automagically, but barely supports .xz
-        packages_re = re.compile("(?P<comp>[-_a-zA-Z0-9]+)\/(?P<arch>binary-(?:{}))\/Packages.(?P<ext>[g]z)".format("|".join(arches)))
-        for entry in release['SHA256']:
-            m = packages_re.match(entry['name'])
-            if m:
-                components.add(m.group('comp'))
-                logging.debug("Found %s/%s/%s", distro, m.group('comp'), m.group('arch'))
-                p, e = import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'])
-                packages += p
-                errors.extend(e)
-        meta = {'distro': distro, 'imported': {'from': base_url},
-                'description': release.get('Description', 'N/A')}
-        common.db_cacus.distros.find_one_and_update({'distro': distro},
-                                                    {'$set': meta},
-                                                    upsert=True)
+        # since we don't know list of components in distro, lock distro on some fake component name
+        with common.DistroLock(distro, ['__cacusimport']):
+            # remove all packages imported - we will recreate distro collection from scratch
+            # note that this does not affect APT API of distro - indices are still in place i
+            # and will be updated once we finish import
+            common.db_packages[distro].drop()
+            common.create_packages_indexes([distro])
+
+            # TODO add LZMA (.xz) support. Appears that debian.deb822 can handle .gz automagically, but barely supports .xz
+            packages_re = re.compile("(?P<comp>[-_a-zA-Z0-9]+)\/(?P<arch>binary-(?:{}))\/Packages.(?P<ext>[g]z)".format("|".join(arches)))
+            for entry in release['SHA256']:
+                m = packages_re.match(entry['name'])
+                if m:
+                    components.add(m.group('comp'))
+                    log.debug("Found %s/%s/%s", distro, m.group('comp'), m.group('arch'))
+                    p, e = import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'])
+                    packages += p
+                    errors.extend(e)
+            meta = {'distro': distro, 'imported': {'from': base_url},
+                    'description': release.get('Description', 'N/A')}
+            common.db_cacus.distros.find_one_and_update({'distro': distro},
+                                                        {'$set': meta},
+                                                        upsert=True)
 
         repo_manage.update_distro_metadata(distro, components, arches, force=True)
     finally:
@@ -76,7 +84,7 @@ def import_distro(base_url, distro, components=None, arches=None):
             os.unlink(release_filename)
         except:
             pass
-    logging.info("Distribution %s: imported %s packages, %s import errors", distro, packages, len(errors))
+    log.info("Distribution %s: imported %s packages, %s import errors", distro, packages, len(errors))
 
 
 def import_repo(base_url, distro, ext, comp, arch, sha256):
@@ -84,7 +92,6 @@ def import_repo(base_url, distro, ext, comp, arch, sha256):
     packages_filename = common.download_file(packages_url, sha256=binascii.unhexlify(sha256))
     pkgs = 0
     errs = []
-    # TODO: cleanup (?) previous distro collection in db_packages and create indexes there
     try:
         with open(packages_filename) as f:
             for package in deb822.Packages.iter_paragraphs(f):
@@ -92,8 +99,8 @@ def import_repo(base_url, distro, ext, comp, arch, sha256):
                     import_package(base_url, distro, comp, package)
                     pkgs += 1
                 except Exception as e:
-                    logging.error("Error importing package %s_%s_s: %s",
-                                  package['Package'], package['Version'], package['Architecture'], e)
+                    log.error("Error importing package %s_%s_%s: %s",
+                              package['Package'], package['Version'], package['Architecture'], e)
                     errs.append(package)
     finally:
         try:
@@ -107,13 +114,14 @@ def import_package(base_url, distro, comp, meta):
     package = meta['Package']
     version = meta['Version']
     arch = meta['Architecture']
-    logging.debug("Importing package %s_%s_%s to %s/%s", package, version, meta['Architecture'], distro, comp)
+    log.debug("Importing package %s_%s_%s to %s/%s", package, version, meta['Architecture'], distro, comp)
     # TODO: full import option. For now we import only metadata and just proxying requests for actual files to original repo
     doc = {
         'Package': package,
         'Version': version,
         'Architecture': arch,
-        'storage_key': _urljoin("extstorage/", urllib.quote_plus(base_url), urllib.quote_plus(meta['Filename'])),
+        # remove Filename from original meta - will be replaced by our own:
+        'storage_key': _urljoin("extstorage/", urllib.quote_plus(base_url), urllib.quote_plus(meta.pop('Filename'))),
         'meta': meta
         # TODO import dsc and sources
     }

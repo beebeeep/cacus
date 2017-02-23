@@ -132,7 +132,7 @@ def create_cacus_indexes():
         ('distro', pymongo.DESCENDING),
         ('comp', pymongo.DESCENDING)],
         unique=True)
-    db_cacus.locks.create_index('modified', expireAfterSeconds=config['lock_timeout'])
+    db_cacus.locks.create_index('modified', expireAfterSeconds=config['lock_cleanup_timeout'])
 
 
 def create_packages_indexes(distros=None):
@@ -144,7 +144,8 @@ def create_packages_indexes(distros=None):
         log.info("Creating indexes for packages.%s...", distro)
         db_packages[distro].create_index(
             [('Package', pymongo.DESCENDING),
-             ('Version', pymongo.DESCENDING)],
+             ('Version', pymongo.DESCENDING),
+             ('Architecture', pymongo.DESCENDING)],
             unique=True)
         db_packages[distro].create_index('components')
         db_packages[distro].create_index('source')
