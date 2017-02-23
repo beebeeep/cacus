@@ -6,10 +6,10 @@
     see https://azure.microsoft.com/en-us/documentation/articles/storage-python-how-to-use-blob-storage/
 """
 
-import os
 import re
 import logging
 
+import requests
 from azure.common import AzureMissingResourceHttpError, AzureHttpError, AzureException
 from azure.storage.blob import BlockBlobService, PublicAccess, ContentSettings
 
@@ -23,16 +23,20 @@ log = logging.getLogger('cacus.azure_storage')
 class AzureStorage(IStoragePlugin):
 
     def configure(self, config):
-        self.storage = BlockBlobService(account_name=config['account_name'], account_key=config['account_key'])
+        self._session = requests.Session()
+        self._adapter = requests.adapters.HTTPAdapter(max_retries=config['retries'])
+        self._session.mount('https://', self._adapter)
+        self.storage = BlockBlobService(account_name=config['account_name'], account_key=config['account_key'], request_session=self._session)
         self.container = config['container']
+        self.timeout = config['timeout']
         try:
-            container = self.storage.get_container_properties(self.container)
+            container = self.storage.get_container_properties(self.container, timeout=self.timeout)
             log.info("Configuring Azure blob storage %s/%s", self.storage.account_name, self.container)
         except AzureMissingResourceHttpError as e:
             log.warning("Container '%s' is missing in account '%s', trying to create new", self.container, self.storage.account_name)
             try:
-                self.storage.create_container(self.container)
-                self.storage.set_container_acl(self.container, public_access=PublicAccess.Container)
+                self.storage.create_container(self.container, timeout=self.timeout)
+                self.storage.set_container_acl(self.container, public_access=PublicAccess.Container, timeout=self.timeout)
             except Exception as e:
                 log.critical("Cannot create new container: %s", e)
                 raise PluginInitException("Cannot create new container")
@@ -46,7 +50,7 @@ class AzureStorage(IStoragePlugin):
     def delete(self, key):
         log.info("Deleting file '%s' from %s/%s", key, self.storage.account_name, self.container)
         try:
-            self.storage.delete_blob(self.container, key)
+            self.storage.delete_blob(self.container, key, timeout=self.timeout)
         except AzureMissingResourceHttpError:
             log.error("File '%s' was not found in %s/%s", key, self.storage.account_name, self.container)
             raise common.NotFound('File not found')
@@ -59,19 +63,20 @@ class AzureStorage(IStoragePlugin):
         try:
             if filename:
                 log.debug("Uploading %s to %s", filename, self.storage.make_blob_url(self.container, storage_key))
-                self.storage.create_blob_from_path(self.container, storage_key, filename, content_settings=ContentSettings(content_type='application/octet-stream'))
+                self.storage.create_blob_from_path(self.container, storage_key, filename,
+                                                   content_settings=ContentSettings(content_type='application/octet-stream'), timeout=self.timeout)
             elif file:
                 old_pos = file.tell()
                 file.seek(0)
                 log.debug("Uploading from stream to %s", self.storage.make_blob_url(self.container, storage_key))
-                self.storage.create_blob_from_stream(self.container, storage_key, file, content_settings=ContentSettings(content_type='application/octet-stream'))
+                self.storage.create_blob_from_stream(self.container, storage_key, file,
+                                                     content_settings=ContentSettings(content_type='application/octet-stream'), timeout=self.timeout)
                 file.seek(old_pos)
         except Exception as e:
             # TODO: more detailed error inspection
             log.critical("Error uploading to %s/%s: %s", self.storage.account_name, self.container, e)
             raise common.FatalError(e)
         return storage_key
-
 
     def get(self, key, stream):
         # current azure python sdk barely can work with non-seekable streams,
@@ -83,7 +88,7 @@ class AzureStorage(IStoragePlugin):
         chunk_end = chunk_size - 1
         while True:
             try:
-                chunk = self.storage._get_blob(self.container, key, start_range=chunk_start, end_range=chunk_end)
+                chunk = self.storage._get_blob(self.container, key, start_range=chunk_start, end_range=chunk_end, timeout=self.timeout)
                 log.debug("Writing %s bytes from %s", len(chunk.content), chunk_start)
                 stream.write(chunk.content)
             except IOError:
