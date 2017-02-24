@@ -139,9 +139,11 @@ class EventHandler(pyinotify.ProcessEvent):
             self.uploaded_event.set()
             self.uploaded_event.clear()
 
+
         # if repo is not strict, single .deb file could be uploaded to repo,
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
         if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
+            self.log.info("Will upload it within %s seconds", 2*self.incoming_wait_timeout)
             uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(self.distro, 'unstable', event.pathname))
             uploader.daemon = True
             uploader.start()
@@ -174,7 +176,7 @@ def start_duploader():
                     wm = pyinotify.WatchManager()
                     notifier = pyinotify.ThreadedNotifier(wm, handler)
                     wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
-                    log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
+                    log.info("Starting notifier for distribution '%s' at %s, strict: %s", watcher['distro'], incoming_dir, watcher['strict'])
                     notifier.start()
                     watchers[watcher['distro']] = notifier
 

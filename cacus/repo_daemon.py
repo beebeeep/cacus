@@ -378,13 +378,14 @@ class ApiPkgCopyHandler(JsonRequestHandler):
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
+        arch = req.get('arch', None)
         src = req['from']
         dst = req['to']
         source_pkg = req.get('source_pkg', False)
 
         try:
             r = yield self.settings['workers'].submit(repo_manage.copy_package,
-                                                      distro=distro, pkg=pkg, ver=ver, src=src, dst=dst, source_pkg=source_pkg)
+                                                      distro=distro, pkg=pkg, ver=ver, arch=arch, src=src, dst=dst, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
         except common.NotFound as e:
             self.set_status(404)
@@ -404,10 +405,11 @@ class ApiPkgRemoveHandler(JsonRequestHandler):
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
+        arch = req.get('arch', None)
         source_pkg = req.get('source_pkg', False)
 
         try:
-            r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro, pkg=pkg, ver=ver, comp=comp, source_pkg=source_pkg)
+            r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro, pkg=pkg, ver=ver, arch=arch, comp=comp, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
         except common.NotFound as e:
             self.set_status(404)

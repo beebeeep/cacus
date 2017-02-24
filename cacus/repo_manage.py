@@ -191,7 +191,7 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
                             upsert=True)
 
                 for deb in debs:
-                    if src:
+                    if src_pkg:
                         # refer to source package, if any
                         deb['source'] = src['_id']
                     common.db_packages[distro].find_one_and_update(
@@ -462,7 +462,7 @@ def remove_package(pkg=None,  ver=None, arch=None, distro=None, comp=None, sourc
         raise common.TemporaryError(e.message)
 
 
-def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
+def copy_package(pkg=None, ver=None, arch=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
     affected_arches = []
     try:
         with common.DistroLock(distro, [src, dst]):
