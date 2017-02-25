@@ -139,7 +139,6 @@ class EventHandler(pyinotify.ProcessEvent):
             self.uploaded_event.set()
             self.uploaded_event.clear()
 
-
         # if repo is not strict, single .deb file could be uploaded to repo,
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
         if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
@@ -158,13 +157,17 @@ def _cleanup(watchers):
 def start_duploader():
     watchers = {}
     atexit.register(_cleanup, watchers)
+    incoming_root = common.config['duploader_daemon']['incoming_root']
+    if not os.path.isdir(incoming_root):
+        os.mkdir(incoming_root)
+
     try:
         while True:
             # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
             new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}, 'imported': {'$exists': False}}))
             for watcher in new_watchers:
                 if watcher['distro'] not in watchers:
-                    incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])
+                    incoming_dir = os.path.join(incoming_root, watcher['distro'])
                     try:
                         if not os.path.isdir(incoming_dir):
                             log.debug("Creating incoming dir '%s'", incoming_dir)

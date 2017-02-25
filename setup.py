@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="cacus",
-    version="0.3",
+    version="0.4",
     author="Danila Migalin",
     author_email="me@miga.me.uk",
     url="https://github.com/beebeeep/cacus",
@@ -18,21 +18,17 @@ setup(
                       'motor>=1.0',
                       'tornado',
                       'pyinotify',
-                      'gnupg',
+                      'gnupg>=2.2',
                       'yapsy',
                       'futures',
                       'python-debian',
-#                      'azure-common>=1.1.4',
-#                      'azure-storage>=0.32'
+                      'chardet'
                       ],
     entry_points={
         'console_scripts': [
             'cacus = cacus.cli:main'
         ]
     },
-#    package_data={
-#        'cacus': ['plugins/*']
-#    },
     data_files=[
         ('/etc', ['contrib/cacus-default.yml'])
     ]
