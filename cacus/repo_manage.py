@@ -146,16 +146,14 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
     debs = []
     affected_arches = set()
     for file in files:
-        filename = os.path.basename(file)
-        base_key = "{0}/pool/{1}".format(distro, filename)
-
-        log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
-        storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
-        # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
-
         if file.endswith('.deb') or file.endswith('.udeb'):
-            # All debian packages are going to "packages" db, prepare documents to insert
             deb = _process_deb_file(file)
+            ext = 'deb' if file.endswith('.deb') else 'udeb'
+            base_key = "{}/pool/{}_{}_{}.{}".format(distro, deb['Package'], deb['Version'], deb['Architecture'], ext)
+            log.info("Uploading %s as %s to distro '%s' component '%s'", os.path.basename(file), base_key, distro, comp)
+            storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
+
+            # All debian packages are going to "packages" db, prepare documents to insert
             debs.append({
                 'Package': deb['Package'],
                 'Version': deb['Version'],
@@ -165,6 +163,11 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
             })
 
         else:
+            filename = os.path.basename(file)
+            base_key = "{0}/pool/{1}".format(distro, filename)
+            log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
+            storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
+
             # All other files are stored in "sources" db, fill the "files" array and prepare source document
             if 'files' not in src_pkg:
                 src_pkg['files'] = []
