@@ -25,6 +25,31 @@ class UpdateRepoMetadataError(Exception):
     pass
 
 
+def create_distro(distro, description, components, gpg_check, strict, incoming_wait_timeout):
+    old_distro = common.db_cacus.distros.find_one_and_update(
+        {'distro': distro},
+        {'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+        return_document=ReturnDocument.BEFORE,
+        upsert=True)
+
+    old_components = [x['component'] for x in common.db_cacus.components.find({'distro': distro}, {'component': 1})]
+
+    for comp in components:
+        common.db_cacus.components.find_one_and_update(
+            {'distro': distro, 'component': comp},
+            {'$set': {'distro': distro, 'component': comp}},
+            upsert=True)
+
+    to_delete = set(old_components) - set(components)
+    if to_delete:
+        with common.DistroLock(distro, to_delete):
+            for deleted in to_delete:
+                _delete_component(distro, deleted)
+            update_distro_metadata(distro)
+
+    return old_distro
+
+
 def _process_deb_file(file):
     with open(file) as f:
         hashes = common.get_hashes(file=f)
@@ -327,7 +352,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     """
     now = datetime.utcnow()
     if not comps:
-        comps = common.db_cacus.repos.find({'distro': distro}).distinct('component')
+        comps = [x['component'] for x in common.db_cacus.components.find({'distro': distro})]
     if not arches:
         arches = common.db_cacus.repos.find({'distro': distro}).distinct('architecture')
         arches.extend(common.default_arches)
@@ -467,6 +492,9 @@ def remove_package(pkg=None,  ver=None, arch=None, distro=None, comp=None, sourc
 
 def copy_package(pkg=None, ver=None, arch=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
     affected_arches = []
+    if not common.db_cacus.components.find_one({'distro': distro, 'component': dst}, {'_id': 1}):
+        raise common.NotFound("Component '{}' was not found in distro '{}'".format(dst, distro))
+
     try:
         with common.DistroLock(distro, [src, dst]):
             if source_pkg:
@@ -517,6 +545,26 @@ def copy_package(pkg=None, ver=None, arch=None, distro=None, src=None, dst=None,
             return msg
     except common.DistroLockTimeout as e:
         raise common.TemporaryError(e.message)
+
+
+def _delete_component(distro, comp):
+    """ Delete component
+    Remove mentions of component in packages in sources, clean up indices.
+    NB it's internal function - for user all component management is performed via distro settings
+    """
+
+    log.info("Deleting component %s from distro %s", comp, distro)
+
+    common.db_sources['distro'].update_many(
+        {'components': comp},
+        {'$pullAll': {'components': [comp]}})
+    common.db_packages['distro'].update_many(
+        {'components': comp},
+        {'$pullAll': {'components': [comp]}})
+
+    # XXX: Packages and Sources indices are not being cleaned up here, source of garbage in storage:
+    common.db_cacus.repos.remove({'distro': distro, 'component': comp})
+    common.db_cacus.components.remove({'distro': distro, 'component': comp})
 
 
 def _get_snapshot_name(distro, name):

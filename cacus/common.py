@@ -28,27 +28,31 @@ gpg = None
 default_arches = ['all', 'amd64', 'i386']
 
 
-class FatalError(Exception):
+class CacusError(Exception):
     http_code = 500
 
 
-class TemporaryError(Exception):
+class FatalError(CacusError):
+    http_code = 500
+
+
+class TemporaryError(CacusError):
     http_code = 409
 
 
-class Timeout(Exception):
+class Timeout(CacusError):
     http_code = 504
 
 
-class NotFound(Exception):
+class NotFound(CacusError):
     http_code = 404
 
 
-class Conflict(Exception):
+class Conflict(CacusError):
     http_code = 409
 
 
-class DistroLockTimeout(Exception):
+class DistroLockTimeout(CacusError):
     http_code = 409
 
 
@@ -147,7 +151,9 @@ def create_packages_indexes(distros=None):
              ('Version', pymongo.DESCENDING),
              ('Architecture', pymongo.DESCENDING)],
             unique=True)
-        db_packages[distro].create_index('components')
+        db_packages[distro].create_index(
+            [('components', pymongo.DESCENDING),
+             ('Architecture', pymongo.DESCENDING)])
         db_packages[distro].create_index('source')
 
         db_sources[distro].create_index(

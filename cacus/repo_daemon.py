@@ -246,7 +246,7 @@ class ApiDistroReindexHandler(JsonRequestHandler):
 class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
-    def get(self, distro, snapshot=None):
+    def get(self, distro):
         ret = {'distro': distro, 'snapshots': []}
         snapshots = self.settings['db'].cacus.distros.find({'snapshot.origin': distro}, {'snapshot': 1, 'lastupdated': 1})
         for snapshot in (yield snapshots.to_list(None)):
@@ -258,22 +258,22 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
         self.write(ret)
 
     @gen.coroutine
-    def delete(self, distro, snapshot):
+    def delete(self, distro):
+        snapshot = self._get_json_request()['snapshot']
         try:
             msg = yield self.settings['workers'].submit(repo_manage.delete_snapshot, distro=distro, name=snapshot)
-        except (common.NotFound, common.Conflict, common.FatalError, common.TemporaryError) as e:
+        except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
             return
         self.write({'success': True, 'msg': msg})
 
     @gen.coroutine
-    def post(self, distro, snapshot=None):
-        if not snapshot:
-            raise MissingArgumentError("Specify snapshot name")
+    def post(self, distro):
+        snapshot = self._get_json_request()['snapshot']
         try:
             msg = yield self.settings['workers'].submit(repo_manage.create_snapshot, distro=distro, name=snapshot)
-        except (common.NotFound, common.Conflict, common.FatalError, common.TemporaryError) as e:
+        except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
             return
@@ -285,20 +285,19 @@ class ApiDistroCreateHandler(JsonRequestHandler):
     @gen.coroutine
     def post(self, distro):
         req = self._get_json_request()
-        gpg_check = req['gpg_check']
-        strict = req['strict']
-        description = req['description']
-        incoming_wait_timeout = req['incoming_timeout']
-        old = yield self.settings['db'].cacus.distros.find_one_and_update(
-                {'distro': distro},
-                {'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
-                upsert=True)
-        if not old:
-            self.set_status(201)
-            self.write({'success': True, 'msg': 'repo created'})
-        else:
-            self.set_status(200)
-            self.write({'success': True, 'msg': 'repo settings updated'})
+        try:
+            old = yield self.settings['workers'].submit(repo_manage.create_distro, distro=distro, description=req['description'],
+                                                        components=req['components'], gpg_check=req['gpg_check'], strict=req['strict'],
+                                                        incoming_wait_timeout=req['incoming_timeout'])
+            if not old:
+                self.set_status(201)
+                self.write({'success': True, 'msg': 'repo created'})
+            else:
+                self.set_status(200)
+                self.write({'success': True, 'msg': 'repo settings updated'})
+        except common.CacusError as e:
+            self.set_status(e.http_code)
+            self.write({'success': False, 'msg': e.message})
 
 
 @stream_request_body
@@ -387,14 +386,8 @@ class ApiPkgCopyHandler(JsonRequestHandler):
             r = yield self.settings['workers'].submit(repo_manage.copy_package,
                                                       distro=distro, pkg=pkg, ver=ver, arch=arch, src=src, dst=dst, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
-        except common.NotFound as e:
-            self.set_status(404)
-            self.write({'success': False, 'msg': e.message})
-        except common.TemporaryError as e:
-            # TODO retries
-            # timeout on dmove can only if we cannot lock the distro,
-            # i.e. there is some other operation processing current distro
-            self.set_status(409)
+        except common.CacusError as e:
+            self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
 
 
@@ -409,16 +402,11 @@ class ApiPkgRemoveHandler(JsonRequestHandler):
         source_pkg = req.get('source_pkg', False)
 
         try:
-            r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro, pkg=pkg, ver=ver, arch=arch, comp=comp, source_pkg=source_pkg)
+            r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro,
+                                                      pkg=pkg, ver=ver, arch=arch, comp=comp, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
-        except common.NotFound as e:
-            self.set_status(404)
-            self.write({'success': False, 'msg': e.message})
-        except common.TemporaryError as e:
-            # TODO retries
-            # timeout on dmove can only if we cannot lock the distro,
-            # i.e. there is some other operation processing current distro
-            self.set_status(409)
+        except common.CacusError as e:
+            self.set_status(e.code)
             self.write({'success': False, 'msg': e.message})
 
 
@@ -516,7 +504,7 @@ def make_app():
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
-    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)(?:/(?P<snapshot>[-_.A-Za-z0-9]+))?$"
+    api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
     # Misc/unknown/obsolete
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
