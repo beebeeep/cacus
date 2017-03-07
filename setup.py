@@ -24,6 +24,7 @@ setup(
                       'python-debian',
                       'chardet'
                       ],
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'cacus = cacus.cli:main'

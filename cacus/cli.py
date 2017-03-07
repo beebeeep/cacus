@@ -27,7 +27,6 @@ import repo_manage
 import repo_daemon
 import duploader
 import distro_importer
-import plugin
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 
@@ -61,30 +60,6 @@ def main():
     args = parser.parse_args()
 
     common.initialize(args.config)
-
-    handlers = []
-    dst = common.config['logging']['destinations']
-    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
-    if dst['console']:
-        h = logging.StreamHandler()
-        h.setFormatter(logFormatter)
-        handlers.append(h)
-    if dst['file']:
-        h = logging.handlers.WatchedFileHandler(dst['file'])
-        h.setFormatter(logFormatter)
-        handlers.append(h)
-    if dst['syslog']:
-        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
-        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
-        handlers.append(h)
-
-    rootLogger = logging.getLogger('')
-    rootLogger.setLevel(logging.DEBUG)
-    for handler in handlers:
-        rootLogger.addHandler(handler)
-
-    log = logging.getLogger('cacus')
-    plugin.load_plugins()
 
     if args.duploader_daemon:
         duploader.start_duploader()

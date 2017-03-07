@@ -17,14 +17,6 @@ import plugin
 log = logging.getLogger('cacus.repo_manage')
 
 
-class UploadPackageError(Exception):
-    pass
-
-
-class UpdateRepoMetadataError(Exception):
-    pass
-
-
 def create_distro(distro, description, components, gpg_check, strict, incoming_wait_timeout):
     old_distro = common.db_cacus.distros.find_one_and_update(
         {'distro': distro},
