@@ -58,8 +58,10 @@ cacus --config /path/to/cacus.yaml --repo-daemon
 REST API documentation pending, some examples:
 ```shell
 # Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo
-curl -X POST  -vks 'localhost/debian/api/v1/distro/create/test-repo' \
-  -d '{"gpg_check": false, "description": "Test distro", "incoming_timeout": 5, "strict": false}' -H 'Content-Type: application/json'
+curl -X POST -H 'Content-Type: application/json' -vks \
+  'localhost/debian/api/v1/distro/create/test-repo' \
+  -d '{"gpg_check": false, "description": "Test distro", "incoming_timeout": 5, "strict": false,
+       "components": ["unstable", "testing", "main"] }'
 
 # Create snapshot "snap1" of distro "test-repo"
 curl -X POST  -vks 'localhost/debian/api/v1/distro/snapshot/test-repo/snap1'
