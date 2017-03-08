@@ -18,63 +18,48 @@ from threading import Event
 from itertools import chain, repeat
 from tornado.ioloop import IOLoop
 
+import plugin
 
 config = None
 db = None
 db_packages = None
+db_sources = None
 db_cacus = None
 gpg = None
+log = None
 default_arches = ['all', 'amd64', 'i386']
 
 
-class FatalError(Exception):
+class CacusError(Exception):
     http_code = 500
 
 
-class TemporaryError(Exception):
+class FatalError(CacusError):
+    http_code = 500
+
+
+class TemporaryError(CacusError):
     http_code = 409
 
 
-class Timeout(Exception):
+class Timeout(CacusError):
     http_code = 504
 
 
-class NotFound(Exception):
+class NotFound(CacusError):
     http_code = 404
 
 
-class Conflict(Exception):
+class Conflict(CacusError):
     http_code = 409
 
 
-class DistroLockTimeout(Exception):
+class DistroLockTimeout(CacusError):
     http_code = 409
 
 
-def setup_logger(name):
-    log = logging.getLogger(name)
-    log.setLevel(logging.DEBUG)
-    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
-
-    dst = globals()['config']['logging']['destinations']
-    if dst['console']:
-        h = logging.StreamHandler()
-        h.setFormatter(logFormatter)
-        log.addHandler(h)
-    if dst['file']:
-        h = logging.handlers.WatchedFileHandler(dst['file'])
-        h.setFormatter(logFormatter)
-        log.addHandler(h)
-    if dst['syslog']:
-        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
-        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
-        log.addHandler(h)
-
-    return log
-
-
-def initialize(config_file):
-    global config, db, gpg
+def initialize(config_file, mongo=None):
+    global config, db, gpg, log, db_cacus, db_packages, db_sources
     if not config_file:
         if os.path.isfile('/etc/cacus.yml'):
             config_file = '/etc/cacus.yml'
@@ -83,30 +68,61 @@ def initialize(config_file):
     with open(config_file) as cfg:
         config = yaml.load(cfg)
 
+    # logging
+    handlers = []
+    dst = config['logging']['destinations']
+    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
+    if dst['console']:
+        h = logging.StreamHandler()
+        h.setFormatter(logFormatter)
+        handlers.append(h)
+    if dst['file']:
+        h = logging.handlers.WatchedFileHandler(dst['file'])
+        h.setFormatter(logFormatter)
+        handlers.append(h)
+    if dst['syslog']:
+        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
+        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
+        handlers.append(h)
+
+    rootLogger = logging.getLogger('')
+    rootLogger.setLevel(logging.DEBUG)
+    for handler in handlers:
+        rootLogger.addHandler(handler)
+
+    log = logging.getLogger('cacus.common')
+
+    # GPG
     try:
         gpg = gnupg.GPG(homedir=config['gpg']['home'])
         keys = [x for x in gpg.list_keys(secret=True) if config['gpg']['sign_key'] in x['keyid']]
         if len(keys) < 1:
             raise Exception("Cannot find secret key with ID {}".format(config['gpg']['sign_key']))
     except Exception as e:
-        logging.critical("GPG initialization error: %s", e)
+        log.critical("GPG initialization error: %s", e)
         sys.exit(1)
 
+    # mongo
+    if not mongo:
+        config['db']['connect'] = False
+        db = pymongo.MongoClient(**(config['db']))
+        db_cacus = db['cacus']
+        db_packages = db['packages']
+        db_sources = db['sources']
+    else:
+        db_cacus = mongo['cacus']
+        db_packages = mongo['packages']
+        db_sources = mongo['sources']
+
+    # plugins
+    plugin.load_plugins()
+
+    # misc
     config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')
     config['repo_daemon']['storage_subdir'] = config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
-    connect_mongo()
-
-
-def connect_mongo():
-    global db_cacus, db_packages
-    config['db']['connect'] = False
-    db = pymongo.MongoClient(**(config['db']))
-    db_cacus = db['cacus']
-    db_packages = db['packages']
 
 
 def create_cacus_indexes():
-    log = logging.getLogger("cacus.common")
     log.info("Creating indexes for cacus.distros...")
     db_cacus.distros.create_index('distro', unique=True)
     db_cacus.distros.create_index('snapshot')
@@ -114,15 +130,15 @@ def create_cacus_indexes():
     log.info("Creating indexes for cacus.components...")
     db_cacus.components.create_index(
         [('distro', pymongo.DESCENDING),
-        ('component', pymongo.DESCENDING)],
+         ('component', pymongo.DESCENDING)],
         unique=True)
     db_cacus.components.create_index('snapshot')
 
     log.info("Creating indexes for cacus.repos...")
     db_cacus.repos.create_index(
         [('distro', pymongo.DESCENDING),
-        ('component', pymongo.DESCENDING),
-        ('architecture', pymongo.DESCENDING)],
+         ('component', pymongo.DESCENDING),
+         ('architecture', pymongo.DESCENDING)],
         unique=True)
 
     log.info("Creating indexes for cacus.locks...")
@@ -130,20 +146,30 @@ def create_cacus_indexes():
         ('distro', pymongo.DESCENDING),
         ('comp', pymongo.DESCENDING)],
         unique=True)
+    db_cacus.locks.create_index('modified', expireAfterSeconds=config['lock_cleanup_timeout'])
 
 
 def create_packages_indexes(distros=None):
-    log = logging.getLogger("cacus.common")
     if not distros:
         distros = db_packages.collection_names()
 
     for distro in distros:
         log.info("Creating indexes for packages.%s...", distro)
         db_packages[distro].create_index(
-            [('Source', pymongo.DESCENDING),
-            ('Version', pymongo.DESCENDING)],
+            [('Package', pymongo.DESCENDING),
+             ('Version', pymongo.DESCENDING),
+             ('Architecture', pymongo.DESCENDING)],
             unique=True)
-        db_packages[distro].create_index('components')
+        db_packages[distro].create_index(
+            [('components', pymongo.DESCENDING),
+             ('Architecture', pymongo.DESCENDING)])
+        db_packages[distro].create_index('source')
+
+        db_sources[distro].create_index(
+            [('Package', pymongo.DESCENDING),
+             ('Version', pymongo.DESCENDING)],
+            unique=True)
+        db_sources[distro].create_index('components')
 
 
 def get_hashes(file=None, filename=None):

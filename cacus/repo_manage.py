@@ -17,15 +17,32 @@ import plugin
 log = logging.getLogger('cacus.repo_manage')
 
 
-class UploadPackageError(Exception):
-    pass
+def create_distro(distro, description, components, gpg_check, strict, incoming_wait_timeout):
+    old_distro = common.db_cacus.distros.find_one_and_update(
+        {'distro': distro},
+        {'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+        return_document=ReturnDocument.BEFORE,
+        upsert=True)
+
+    old_components = [x['component'] for x in common.db_cacus.components.find({'distro': distro}, {'component': 1})]
+
+    for comp in components:
+        common.db_cacus.components.find_one_and_update(
+            {'distro': distro, 'component': comp},
+            {'$set': {'distro': distro, 'component': comp}},
+            upsert=True)
+
+    to_delete = set(old_components) - set(components)
+    if to_delete:
+        with common.DistroLock(distro, to_delete):
+            for deleted in to_delete:
+                _delete_component(distro, deleted)
+            update_distro_metadata(distro)
+
+    return old_distro
 
 
-class UpdateRepoMetadataError(Exception):
-    pass
-
-
-def _process_deb_file(file, storage_key):
+def _process_deb_file(file):
     with open(file) as f:
         hashes = common.get_hashes(file=f)
 
@@ -34,8 +51,7 @@ def _process_deb_file(file, storage_key):
         'sha512': binary.Binary(hashes['sha512']),
         'sha256': binary.Binary(hashes['sha256']),
         'sha1': binary.Binary(hashes['sha1']),
-        'md5': binary.Binary(hashes['md5']),
-        'storage_key': storage_key
+        'md5': binary.Binary(hashes['md5'])
         }
 
     try:
@@ -48,7 +64,7 @@ def _process_deb_file(file, storage_key):
     return doc
 
 
-def _process_source_file(file, storage_key):
+def _process_source_file(file):
     with open(file) as f:
         hashes = common.get_hashes(file=f)
 
@@ -61,8 +77,7 @@ def _process_source_file(file, storage_key):
             'sha512': binary.Binary(hashes['sha512']),
             'sha256': binary.Binary(hashes['sha256']),
             'sha1': binary.Binary(hashes['sha1']),
-            'md5': binary.Binary(hashes['md5']),
-            'storage_key': storage_key
+            'md5': binary.Binary(hashes['md5'])
             }
     if file.endswith('.dsc'):
         with open(file) as f:
@@ -133,48 +148,77 @@ def _create_release(distro, settings=None, ts=None):
 
 
 def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpdateMeta=False):
-    # files is array of files of .deb, .dsc, .tar.gz and .changes
-    # these files are belongs to single package
-    meta = {}
+    """ Uploads package from incoming dir to distro.
+
+    Arguments:
+        distro - distribution to upload packag
+        comp - component within distribution
+        changes - array of files belonging to package in scope:
+            .deb for binary packages (at least one required)
+            .dsc, .tar.[gx]z, .changes for sources (optional)
+        skipUpdateMeta, forceUpdateMeta - whether to update distro metadata
+    """
+
+    src_pkg = {}
     debs = []
     affected_arches = set()
     for file in files:
-        filename = os.path.basename(file)
-        base_key = "{0}/pool/{1}".format(distro, filename)
-
-        log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
-        storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
-        # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
-
         if file.endswith('.deb') or file.endswith('.udeb'):
-            deb = _process_deb_file(file, storage_key)
-            debs.append(deb)
+            deb = _process_deb_file(file)
+            ext = 'deb' if file.endswith('.deb') else 'udeb'
+            base_key = "{}/pool/{}_{}_{}.{}".format(distro, deb['Package'], deb['Version'], deb['Architecture'], ext)
+            log.info("Uploading %s as %s to distro '%s' component '%s'", os.path.basename(file), base_key, distro, comp)
+            storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
+
+            # All debian packages are going to "packages" db, prepare documents to insert
+            debs.append({
+                'Package': deb['Package'],
+                'Version': deb['Version'],
+                'Architecture': deb['Architecture'],
+                'storage_key': storage_key,
+                'meta': deb
+            })
+
         else:
-            if 'sources' not in meta:
-                meta['sources'] = []
-            source, dsc = _process_source_file(file, storage_key)
-            meta['sources'].append(source)
+            filename = os.path.basename(file)
+            base_key = "{0}/pool/{1}".format(distro, filename)
+            log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
+            storage_key = plugin.get_plugin('storage').put(base_key, filename=file)
+
+            # All other files are stored in "sources" db, fill the "files" array and prepare source document
+            if 'files' not in src_pkg:
+                src_pkg['files'] = []
+            source, dsc = _process_source_file(file)
+            source['storage_key'] = storage_key
+            src_pkg['files'].append(source)
             if dsc:
-                meta['dsc'] = dsc
+                src_pkg['dsc'] = dsc
 
         if changes:
-            meta['Source'] = changes['Source']
-            meta['Version'] = changes['Version']
-        else:
-            # if changes file is not present (i.e. we are uploading single deb file in non-strict repo),
-            # take package name and version from 1st (which also should be last) deb file
-            meta['Source'] = debs[0]['Package']
-            meta['Version'] = debs[0]['Version']
+            src_pkg['Package'] = changes['Source']
+            src_pkg['Version'] = changes['Version']
 
     affected_arches.update(x['Architecture'] for x in debs)
     if affected_arches:
         # critical section. updating meta DB
         try:
             with common.DistroLock(distro, [comp]):
-                common.db_packages[distro].find_one_and_update(
-                        {'Source': meta['Source'], 'Version': meta['Version']},
-                        {'$set': meta, '$addToSet': {'components': comp, 'debs': {'$each': debs}}},
+                if src_pkg:
+                    src = common.db_sources[distro].find_one_and_update(
+                            {'Package': src_pkg['Package'], 'Version': src_pkg['Version']},
+                            {'$set': src_pkg, '$addToSet': {'components': comp}},
+                            return_document=ReturnDocument.AFTER,
+                            upsert=True)
+
+                for deb in debs:
+                    if src_pkg:
+                        # refer to source package, if any
+                        deb['source'] = src['_id']
+                    common.db_packages[distro].find_one_and_update(
+                        {'Package': deb['Package'], 'Version': deb['Version'], 'Architecture': deb['Architecture']},
+                        {'$set': deb, '$addToSet': {'components': comp}},
                         upsert=True)
+
                 if not skipUpdateMeta:
                     if len(affected_arches) == 1 and 'all' in affected_arches:
                         affected_arches = None      # update all arches in case of "all" arch package
@@ -184,7 +228,114 @@ def upload_package(distro, comp, files, changes, skipUpdateMeta=False, forceUpda
             raise common.TemporaryError("Cannot lock distro: {0}".format(e))
     else:
         log.info("No changes made on distro %s/%s, skipping metadata update", distro, comp)
-    return meta
+    return debs
+
+
+def _update_packages(distro, comp, arch, now, force=False):
+    """ Updates Packages index
+    """
+    md5 = hashlib.md5()
+    sha1 = hashlib.sha1()
+    sha256 = hashlib.sha256()
+
+    packages = _generate_packages_file(distro, comp, arch)
+    size = packages.tell()
+    md5.update(packages.getvalue())
+    sha1.update(packages.getvalue())
+    sha256.update(packages.getvalue())
+
+    old_repo = common.db_cacus.repos.find_one({'distro': distro, 'component': comp, 'architecture': arch}, {'packages_file': 1})
+    if not force and old_repo and 'packages_file' in old_repo and md5.hexdigest() in old_repo['packages_file']:
+        log.warn("Packages file for %s/%s/%s not changed, skipping update", distro, comp, arch)
+        return
+
+    # Packages may be used by distro snapshots, so we keep all versions under unique filename
+    base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, sha256.hexdigest())
+    storage_key = plugin.get_plugin('storage').put(base_key, file=packages)
+
+    old_repo = common.db_cacus.repos.find_one_and_update(
+            {'distro': distro, 'component': comp, 'architecture': arch},
+            {'$set': {
+                'distro': distro,
+                'component': comp,
+                'architecture': arch,
+                'md5': binary.Binary(md5.digest()),
+                'sha1': binary.Binary(sha1.digest()),
+                'sha256': binary.Binary(sha256.digest()),
+                'size': size,
+                'packages_file': storage_key,
+                'lastupdated': now
+                }},
+            return_document=ReturnDocument.BEFORE,
+            upsert=True)
+
+    # Do not delete old indices from storage as they may be used by some distro snapshot
+    if not force and old_repo and 'packages_file' in old_repo:
+        old_key = old_repo['packages_file']
+        snapshots = common.db_cacus.repos.find(
+            {'snapshot.origin': distro, 'component': comp, 'architecture': arch},
+            {'packages_file': 1})
+        for snapshot in snapshots:
+            if snapshot['packages_file'] == old_key:
+                break
+        else:
+            log.debug("Removing old Packages file %s", old_key)
+            try:
+                plugin.get_plugin('storage').delete(old_key)
+            except common.NotFound:
+                log.warning("Cannot find old Packages file")
+
+
+def _update_sources(distro, comp, now, force):
+    """ Updates Sources index
+    """
+
+    md5 = hashlib.md5()
+    sha1 = hashlib.sha1()
+    sha256 = hashlib.sha256()
+    sources = _generate_sources_file(distro, comp)
+    size = sources.tell()
+    md5.update(sources.getvalue())
+    sha1.update(sources.getvalue())
+    sha256.update(sources.getvalue())
+
+    old_sources = common.db_cacus.components.find_one({'distro': distro, 'component': comp}, {'sources_file': 1})
+    if not force and old_sources and md5.hexdigest() in old_sources.get('packages_file', ''):
+        log.warn("Sources file for %s/%s not changed, skipping update", distro, comp)
+        return
+    base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
+    storage_key = plugin.get_plugin('storage').put(base_key, file=sources)
+
+    old_component = common.db_cacus.components.find_one_and_update(
+            {'distro': distro, 'component': comp},
+            {'$set': {
+                'distro': distro,
+                'component': comp,
+                'md5': binary.Binary(md5.digest()),
+                'sha1': binary.Binary(sha1.digest()),
+                'sha256': binary.Binary(sha256.digest()),
+                'size': size,
+                'sources_file': storage_key,
+                'lastupdated': now
+                }},
+            return_document=ReturnDocument.BEFORE,
+            upsert=True)
+
+    # check whether previous indice is not used by some snapshot and remove it from storage
+    if not force and old_component and 'sources_file' in old_component:
+        old_key = old_component['sources_file']
+        snapshots = common.db_cacus.components.find(
+            {'snapshot': {'origin': distro}, 'component': comp},
+            {'sources_file': 1})
+        for snapshot in snapshots:
+            if snapshot['sources_file'] == old_key:
+                break
+        else:
+            log.debug("Removing old Sources file %s", old_key)
+            try:
+                plugin.get_plugin('storage').delete(old_key)
+            except common.NotFound:
+                log.warning("Cannot find old Sources file")
 
 
 def update_distro_metadata(distro, comps=None, arches=None, force=False):
@@ -193,7 +344,7 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
     """
     now = datetime.utcnow()
     if not comps:
-        comps = common.db_cacus.repos.find({'distro': distro}).distinct('component')
+        comps = [x['component'] for x in common.db_cacus.components.find({'distro': distro})]
     if not arches:
         arches = common.db_cacus.repos.find({'distro': distro}).distinct('architecture')
         arches.extend(common.default_arches)
@@ -203,110 +354,13 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
 
     log.info("Updating metadata for distro %s, components: %s, arches: %s", distro, ', '.join(comps), ', '.join(arches))
 
-    # update all Packages files of specified architectures in specified components
+    # for all components, updates Packages (for each architecture) and Sources index files
     for comp in comps:
+        _update_sources(distro, comp, now, force)
         for arch in arches:
-            md5 = hashlib.md5()
-            sha1 = hashlib.sha1()
-            sha256 = hashlib.sha256()
+            _update_packages(distro, comp, arch, now, force)
 
-            packages = generate_packages_file(distro, comp, arch)
-            size = packages.tell()
-            md5.update(packages.getvalue())
-            sha1.update(packages.getvalue())
-            sha256.update(packages.getvalue())
-
-            old_repo = common.db_cacus.repos.find_one({'distro': distro, 'component': comp, 'architecture': arch}, {'packages_file': 1})
-            if not force and old_repo and 'packages_file' in old_repo and md5.hexdigest() in old_repo['packages_file']:
-                log.warn("Packages file for %s/%s/%s not changed, skipping update", distro, comp, arch)
-                continue
-
-            # we hold Packages under unique filename as far as we don't want to make assumptions whether
-            # our storage engine supports updating of keys
-            base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, md5.hexdigest())
-            storage_key = plugin.get_plugin('storage').put(base_key, file=packages)
-            # storage_key = os.path.join(common.config['repo_daemon']['storage_subdir'], storage_key)
-
-            old_repo = common.db_cacus.repos.find_one_and_update(
-                    {'distro': distro, 'component': comp, 'architecture': arch},
-                    {'$set': {
-                        'distro': distro,
-                        'component': comp,
-                        'architecture': arch,
-                        'md5': binary.Binary(md5.digest()),
-                        'sha1': binary.Binary(sha1.digest()),
-                        'sha256': binary.Binary(sha256.digest()),
-                        'size': size,
-                        'packages_file': storage_key,
-                        'lastupdated': now
-                        }},
-                    return_document=ReturnDocument.BEFORE,
-                    upsert=True)
-            # Do not delete old indices from storage as they may be used by some distro snapshot
-            if not force and old_repo and 'packages_file' in old_repo:
-                old_key = old_repo['packages_file']
-                snapshots = common.db_cacus.repos.find(
-                    {'snapshot.origin': distro, 'component': comp, 'architecture': arch},
-                    {'packages_file': 1})
-                for snapshot in snapshots:
-                    if snapshot['packages_file'] == old_key:
-                        break
-                else:
-                    log.debug("Removing old Packages file %s", old_key)
-                    try:
-                        plugin.get_plugin('storage').delete(old_key)
-                    except common.NotFound:
-                        log.warning("Cannot find old Packages file")
-
-        # now update all Sources indices for each component
-        md5 = hashlib.md5()
-        sha1 = hashlib.sha1()
-        sha256 = hashlib.sha256()
-        sources = generate_sources_file(distro, comp)
-        size = sources.tell()
-        md5.update(sources.getvalue())
-        sha1.update(sources.getvalue())
-        sha256.update(sources.getvalue())
-
-        old_sources = common.db_cacus.components.find_one({'disro': distro, 'component': comp}, {'sources_file': 1})
-        if not force and old_sources and md5.hexdigest() in old_sources.get('packages_file', ''):
-            log.warn("Sources file for %s/%s not changed, skipping update", distro, comp)
-            continue
-        base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
-        storage_key = plugin.get_plugin('storage').put(base_key, file=sources)
-
-        old_component = common.db_cacus.components.find_one_and_update(
-                {'distro': distro, 'component': comp},
-                {'$set': {
-                    'distro': distro,
-                    'component': comp,
-                    'md5': binary.Binary(md5.digest()),
-                    'sha1': binary.Binary(sha1.digest()),
-                    'sha256': binary.Binary(sha256.digest()),
-                    'size': size,
-                    'sources_file': storage_key,
-                    'lastupdated': now
-                    }},
-                return_document=ReturnDocument.BEFORE,
-                upsert=True)
-
-        # check whether previous indice is not used by some snapshot and remove it from storage
-        if not force and old_component and 'sources_file' in old_component:
-            old_key = old_component['sources_file']
-            snapshots = common.db_cacus.components.find(
-                {'snapshot': {'origin': distro}, 'component': comp},
-                {'sources_file': 1})
-            for snapshot in snapshots:
-                if snapshot['sources_file'] == old_key:
-                    break
-            else:
-                log.debug("Removing old Sources file %s", old_key)
-                try:
-                    plugin.get_plugin('storage').delete(old_key)
-                except common.NotFound:
-                    log.warning("Cannot find old Sources file")
-
-    # now create Release file for whole distro (aka "distribution" for Debian folks) including all comps and arches
+    # now create Release file
     release, release_gpg = _create_release(distro, ts=now)
 
     # Release file and its digest is small enough to put directly into metabase
@@ -321,20 +375,17 @@ def update_distro_metadata(distro, comps=None, arches=None, force=False):
             upsert=True)
 
 
-def generate_sources_file(distro, comp):
+def _generate_sources_file(distro, comp):
     data = common.myStringIO()
-    component = common.db_packages[distro].find(
+    component = common.db_sources[distro].find(
         {'components': comp, 'dsc': {'$exists': True}},
-        {'dsc': 1, 'sources': 1})
+        {'dsc': 1, 'files': 1})
     for pkg in component:
         for k, v in pkg['dsc'].iteritems():
-            if k == 'Source':
-                data.write("Package: {0}\n".format(v))
-            else:
-                data.write("{0}: {1}\n".format(k.capitalize(), v))
-        data.write("Directory: storage\n")
+            data.write("{0}: {1}\n".format(k.capitalize(), v))
+        data.write("Directory: {}\n".format(common.config['repo_daemon']['storage_subdir']))
         # c-c-c-c-combo!
-        files = [x for x in pkg['sources'] if reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
+        files = [x for x in pkg['files'] if reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
 
         def gen_para(algo, files):
             for f in files:
@@ -353,48 +404,69 @@ def generate_sources_file(distro, comp):
     return data
 
 
-def generate_packages_file(distro, comp, arch):
+def _generate_packages_file(distro, comp, arch):
     log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
     data = common.myStringIO()
-    distro = common.db_packages[distro].find({'components': comp, 'debs.Architecture': {'$in': [arch, 'all']}})
-    for pkg in distro:
-        # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
-        for deb in (x for x in pkg['debs'] if x['Architecture'] == arch or x['Architecture'] == 'all'):
-            log.debug("Processing %s_%s", pkg['Source'], pkg['Version'])
-            for k, v in deb.iteritems():
-                if k == 'md5':
-                    string = "MD5sum: {0}\n".format(hexlify(v))
-                elif k == 'sha1':
-                    string = "SHA1: {0}\n".format(hexlify(v))
-                elif k == 'sha256':
-                    string = "SHA256: {0}\n".format(hexlify(v))
-                elif k == 'sha512':
-                    string = "SHA512: {0}\n".format(hexlify(v))
-                elif k == 'storage_key':
-                    if v.startswith('extstorage'):
-                        path = v
-                    else:
-                        path = os.path.join(common.config['repo_daemon']['storage_subdir'], v)
-                    string = "Filename: {0}\n".format(path)
-                else:
-                    string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
-                data.write(string)
-            data.write("\n")
+    # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
+    repo = common.db_packages[distro].find({'components': comp, 'Architecture': {'$in': [arch, 'all']}})
+    for pkg in repo:
+        log.debug("Processing %s_%s", pkg['Package'], pkg['Version'])
+
+        path = pkg['storage_key']
+        if not path.startswith('extstorage'):
+            path = os.path.join(common.config['repo_daemon']['storage_subdir'], path)
+        data.write("Filename: {0}\n".format(path))
+
+        for k, v in pkg['meta'].iteritems():
+            if k == 'md5':
+                string = "MD5sum: {0}\n".format(hexlify(v))
+            elif k == 'sha1':
+                string = "SHA1: {0}\n".format(hexlify(v))
+            elif k == 'sha256':
+                string = "SHA256: {0}\n".format(hexlify(v))
+            elif k == 'sha512':
+                string = "SHA512: {0}\n".format(hexlify(v))
+            else:
+                string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
+            data.write(string)
+        data.write("\n")
     # to prevent generating of empty file
     data.write("\n")
     return data
 
 
-def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=False):
+def remove_package(pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False):
+    affected_arches = []
     try:
         with common.DistroLock(distro, [comp]):
-            result = common.db_packages[distro].find_one_and_update(
-                {'Source': pkg, 'Version': ver, 'components': comp},
-                {'$pullAll': {'components': [comp]}},
-                projection={'debs.Architecture': 1, 'component': 1},
-                upsert=False,
-                return_document=ReturnDocument.BEFORE
-            )
+            if source_pkg:
+                # remove source package (if any) and all binary packages within it from component
+                result = common.db_sources[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'components': comp},
+                    {'$pullAll': {'components': [comp]}},
+                    projection={'Architecture': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                if result:
+                    binaries = common.db_packages[distro].update_many(
+                        {'source': result['_id']},
+                        {'$pullAll': {'components': [comp]}})
+                    if binaries.modified_count:
+                        affected_arches = [x['Architecture'] for x in
+                                           common.db_packages[distro].find({'source': result['_id']}, {'Architecture': 1})]
+            else:
+                if not arch:
+                    # dummy selector for all arches
+                    arch = {'$exists': True}
+                result = common.db_packages[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': comp},
+                    {'$pullAll': {'components': [comp]}},
+                    projection={'Architecture': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                affected_arches = [result['Architecture']] if result else []
             if not result:
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, comp)
                 log.error(msg)
@@ -403,24 +475,50 @@ def remove_package(pkg=None,  ver=None, distro=None, comp=None, skipUpdateMeta=F
                 msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
                 log.info(msg)
                 if not skipUpdateMeta:
-                    affected_arches = set(x['Architecture'] for x in result['debs'])
-                    log.info("Updating '%s' distro metadata for component %s, arches: %s", distro, comp, ', '.join(affected_arches))
+                    log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
                     update_distro_metadata(distro, [comp], affected_arches)
                 return msg
     except common.DistroLockTimeout as e:
         raise common.TemporaryError(e.message)
 
 
-def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdateMeta=False):
+def copy_package(pkg=None, ver=None, arch=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
+    affected_arches = []
+    if not common.db_cacus.components.find_one({'distro': distro, 'component': dst}, {'_id': 1}):
+        raise common.NotFound("Component '{}' was not found in distro '{}'".format(dst, distro))
+
     try:
         with common.DistroLock(distro, [src, dst]):
-            result = common.db_packages[distro].find_one_and_update(
-                {'Source': pkg, 'Version': ver, 'components': src},
-                {'$addToSet': {'components': dst}},
-                projection={'components': 1, 'debs.Architecture': 1, 'component': 1},
-                upsert=False,
-                return_document=ReturnDocument.BEFORE
-            )
+            if source_pkg:
+                # move source package (if any) and all binary packages within it
+                result = common.db_sources[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'components': src},
+                    {'$addToSet': {'components': dst}},
+                    projection={'components': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                if result:
+                    binaries = common.db_packages[distro].update_many(
+                        {'source': result['_id']},
+                        {'$addToSet': {'components': dst}})
+                    if binaries.modified_count:
+                        affected_arches = [x['Architecture'] for x in
+                                           common.db_packages[distro].find({'source': result['_id']}, {'Architecture': 1})]
+
+            else:
+                if not arch:
+                    # dummy selector for all arches
+                    arch = {'$exists': True}
+                # touch only one specified package
+                result = common.db_packages[distro].find_one_and_update(
+                    {'Package': pkg, 'Version': ver, 'Architecure': arch, 'components': src},
+                    {'$addToSet': {'components': dst}},
+                    projection={'components': 1, 'Architecture': 1, 'component': 1},
+                    upsert=False,
+                    return_document=ReturnDocument.BEFORE
+                )
+                affected_arches = [result['Architecture']] if result else []
             if not result:
                 msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
                 log.error(msg)
@@ -434,12 +532,31 @@ def copy_package(pkg=None,  ver=None, distro=None, src=None, dst=None, skipUpdat
             log.info(msg)
 
             if not skipUpdateMeta:
-                affected_arches = set(x['Architecture'] for x in result['debs'])
-                log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, ', '.join(affected_arches))
+                log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, affected_arches)
                 update_distro_metadata(distro, [src, dst], affected_arches)
             return msg
     except common.DistroLockTimeout as e:
         raise common.TemporaryError(e.message)
+
+
+def _delete_component(distro, comp):
+    """ Delete component
+    Remove mentions of component in packages in sources, clean up indices.
+    NB it's internal function - for user all component management is performed via distro settings
+    """
+
+    log.info("Deleting component %s from distro %s", comp, distro)
+
+    common.db_sources['distro'].update_many(
+        {'components': comp},
+        {'$pullAll': {'components': [comp]}})
+    common.db_packages['distro'].update_many(
+        {'components': comp},
+        {'$pullAll': {'components': [comp]}})
+
+    # XXX: Packages and Sources indices are not being cleaned up here, source of garbage in storage:
+    common.db_cacus.repos.remove({'distro': distro, 'component': comp})
+    common.db_cacus.components.remove({'distro': distro, 'component': comp})
 
 
 def _get_snapshot_name(distro, name):
@@ -517,26 +634,3 @@ def create_snapshot(distro, name):
         raise common.TemporaryError("Cannot lock distro '{}'".format(distro))
 
     return "Snapshot '{}' was successfully {}".format(snapshot_name, action)
-
-
-"""
-def dist_push(distro=None, changes=None):
-    log.info("Got push for distro %s file %s", distro, changes)
-    try:
-        base_dir = common.config['duploader_daemon']['repos'][distro]['incoming_dir']
-    except KeyError:
-        log.error("Cannot find distro %s", distro)
-        return common.Result('NOT_FOUND', 'No such distro')
-
-    filename = os.path.join(base_dir, changes.split('/')[-1])
-    url = "http://dist.yandex.ru/{}/unstable/{}".format(distro, changes)
-    result = common.download_file(url, filename)
-    if result.ok:
-        try:
-            dist_importer.import_package(filename, distro, 'unstable')
-        except ImportException as e:
-            return common.Result('ERROR', e)
-        return common.Result('OK', 'Imported successfully')
-    else:
-        return result
-"""

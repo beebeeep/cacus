@@ -18,8 +18,9 @@ log = logging.getLogger('cacus.duploader')
 
 class EventHandler(pyinotify.ProcessEvent):
 
-    def __init__(self, settings):
+    def __init__(self, settings, component):
         self.distro = settings['distro']
+        self.component = component
         self.gpg_check = settings.get('gpg_check', True)
         self.strict = settings.get('strict', True)
         self.incoming_wait_timeout = settings.get('incoming_wait_timeout', 5)
@@ -114,12 +115,10 @@ class EventHandler(pyinotify.ProcessEvent):
         except Exception as e:
             self.log.error("Checksum verification failed: %s", e)
         else:
-            # TODO set default component / add per-component upload dirs
-            # for now all new packages are going to component 'unstable'
-            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', component 'unstable'",
-                          changes['source'], changes['version'], self.distro)
+            self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', component '%s'",
+                          changes['source'], changes['version'], self.distro, self.component)
             try:
-                common.with_retries(repo_manage.upload_package, self.distro, 'unstable', incoming_files, changes=changes, forceUpdateMeta=True)
+                common.with_retries(repo_manage.upload_package, self.distro, self.component, incoming_files, changes=changes, forceUpdateMeta=True)
                 self.log.warn("OK")
             except Exception as e:
                 self.log.error("Error while uploading file: %s", e)
@@ -142,6 +141,7 @@ class EventHandler(pyinotify.ProcessEvent):
         # if repo is not strict, single .deb file could be uploaded to repo,
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
         if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
+            self.log.info("Will upload it within %s seconds", 2*self.incoming_wait_timeout)
             uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(self.distro, 'unstable', event.pathname))
             uploader.daemon = True
             uploader.start()
@@ -156,33 +156,43 @@ def _cleanup(watchers):
 def start_duploader():
     watchers = {}
     atexit.register(_cleanup, watchers)
+    incoming_root = common.config['duploader_daemon']['incoming_root']
+    if not os.path.isdir(incoming_root):
+        os.mkdir(incoming_root)
+
     try:
         while True:
-            # check out for any new distros in DB (except read-only snapshots) and create watchers for them if any
-            new_watchers = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}, 'imported': {'$exists': False}}))
-            for watcher in new_watchers:
-                if watcher['distro'] not in watchers:
-                    incoming_dir = os.path.join(common.config['duploader_daemon']['incoming_root'], watcher['distro'])
-                    try:
-                        if not os.path.isdir(incoming_dir):
-                            log.debug("Creating incoming dir '%s'", incoming_dir)
-                            os.mkdir(incoming_dir)
-                    except Exception as e:
-                        log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
-                        continue
-                    handler = EventHandler(watcher)
-                    wm = pyinotify.WatchManager()
-                    notifier = pyinotify.ThreadedNotifier(wm, handler)
-                    wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
-                    log.info("Starting notifier for distribution '%s' at %s", watcher['distro'], incoming_dir)
-                    notifier.start()
-                    watchers[watcher['distro']] = notifier
+            # check out for any new distros in DB (except read-only snapshots) and create watchers for each component of distro, if any
+            distros = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}, 'imported': {'$exists': False}}))
+            for distro_settings in distros:
+                distro = distro_settings['distro']
+                if distro not in watchers:
+                    watchers[distro] = {}
 
-            abandoned = set(watchers.keys()) - set(x['distro'] for x in new_watchers)
-            for watcher in abandoned:
-                log.info("Removing notifier for distribution '%s'", watcher)
-                watchers[watcher].stop()
-                del(watchers[watcher])
+                components = [x['component'] for x in common.db_cacus.components.find({'distro': distro})]
+                for comp in components:
+                    if comp not in watchers[distro]:
+                        incoming_dir = os.path.join(incoming_root, distro, comp)
+                        try:
+                            if not os.path.isdir(incoming_dir):
+                                log.debug("Creating incoming dir '%s'", incoming_dir)
+                                os.makedirs(incoming_dir, mode=0777)
+                        except Exception as e:
+                            log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
+                            continue
+                        handler = EventHandler(distro_settings, comp)
+                        wm = pyinotify.WatchManager()
+                        notifier = pyinotify.ThreadedNotifier(wm, handler)
+                        wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
+                        log.info("Starting notifier for '%s/%s' at %s, strict: %s", distro, comp, incoming_dir, distro_settings['strict'])
+                        notifier.start()
+                        watchers[distro][comp] = notifier
+
+                abandoned = set(watchers[distro].keys()) - set(components)
+                for comp in abandoned:
+                    log.info("Removing notifier for '%s/%s'", distro, comp)
+                    watchers[distro][comp].stop()
+                    del(watchers[distro][comp])
             time.sleep(5)
     except KeyboardInterrupt:
         _cleanup(watchers)

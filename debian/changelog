@@ -1,0 +1,11 @@
+cacus (0.4-1) unstable; urgency=medium
+
+  * Bumped gnupg dependency
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Sat, 25 Feb 2017 12:18:54 +0000
+
+cacus (0.3-1) unstable; urgency=low
+
+  * source package automatically created by stdeb 0.6.0+git
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Thu, 23 Feb 2017 17:48:25 +0000
