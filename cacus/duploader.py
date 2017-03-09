@@ -142,7 +142,7 @@ class EventHandler(pyinotify.ProcessEvent):
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
         if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
             self.log.info("Will upload it within %s seconds", 2*self.incoming_wait_timeout)
-            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(self.distro, 'unstable', event.pathname))
+            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(self.distro, self.component, event.pathname))
             uploader.daemon = True
             uploader.start()
 
