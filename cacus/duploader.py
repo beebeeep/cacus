@@ -4,33 +4,31 @@
 import os
 import time
 import atexit
-import logging
 import pyinotify
 import threading
 from binascii import hexlify
 from debian import deb822
 
-import repo_manage
 import common
-
-log = logging.getLogger('cacus.duploader')
+import repo_manage
 
 
 class EventHandler(pyinotify.ProcessEvent):
 
-    def __init__(self, settings, component):
+    def __init__(self, repo_manager, settings, component):
+        self.repo_manager = repo_manager
         self.distro = settings['distro']
         self.component = component
         self.gpg_check = settings.get('gpg_check', True)
         self.strict = settings.get('strict', True)
         self.incoming_wait_timeout = settings.get('incoming_wait_timeout', 5)
-        self.log = logging.getLogger('cacus.duploader.{0}'.format(self.distro))
+        self.log = repo_manager.log
         self.uploaded_files = {}
         self.uploaded_files_lock = threading.Lock()
         self.uploaded_event = threading.Event()
 
     def _gpgCheck(self, data):
-        result = common.gpg.verify(data)
+        result = self.repo_manager.gpg.verify(data)
         if not result.valid:
             if result.status:
                 raise Exception("signed with {}, status '{}'".format(result.key_id, result.status))
@@ -46,7 +44,8 @@ class EventHandler(pyinotify.ProcessEvent):
                 self.uploaded_files.pop(file)
             self.log.debug("Uploading %s to %s/%s", file, distro, component)
             try:
-                common.with_retries(repo_manage.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
+                common.with_retries(self.repo_manager.config['retry_count'], self.repo_manager.config['retry_delays'],
+                                    self.repo_manager.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
             except Exception as e:
                 self.log.error("Error while uploading DEB %s: %s", file, e)
             os.unlink(file)
@@ -118,8 +117,9 @@ class EventHandler(pyinotify.ProcessEvent):
             self.log.info("%s-%s: sign: OK, checksums: OK, uploading to distro '%s', component '%s'",
                           changes['source'], changes['version'], self.distro, self.component)
             try:
-                common.with_retries(repo_manage.upload_package, self.distro, self.component, incoming_files, changes=changes, forceUpdateMeta=True)
-                self.log.warn("OK")
+                common.with_retries(self.repo_manager.config['retry_count'], self.repo_manager.config['retry_delays'],
+                                    self.repo_manager.upload_package, self.distro, self.component,
+                                    incoming_files, changes=changes, forceUpdateMeta=True)
             except Exception as e:
                 self.log.error("Error while uploading file: %s", e)
 
@@ -134,7 +134,7 @@ class EventHandler(pyinotify.ProcessEvent):
             thread.start()
         else:
             # store uploaded file and send event to all waiting threads
-            self.uploaded_files[event.pathname] = common.get_hashes(filename=event.pathname)
+            self.uploaded_files[event.pathname] = self.repo_manager.get_hashes(filename=event.pathname)
             self.uploaded_event.set()
             self.uploaded_event.clear()
 
@@ -147,52 +147,61 @@ class EventHandler(pyinotify.ProcessEvent):
             uploader.start()
 
 
-def _cleanup(watchers):
-    for w, notifier in watchers.items():
-        notifier.stop()
-        del watchers[w]
+class Duploader(repo_manage.RepoManager):
+
+    def _cleanup(self, watchers):
+        for distro, distro_watchers in watchers.items():
+            for comp, notifier in distro_watchers.items():
+                self.log.info("Removing notifier for '%s/%s'", distro, comp)
+                notifier.stop()
+                del distro_watchers[comp]
+            del watchers[distro]
+
+    def run(self):
+        self.watchers = {}
+        atexit.register(self._cleanup, self.watchers)
+        incoming_root = self.config['duploader_daemon']['incoming_root']
+        if not os.path.isdir(incoming_root):
+            os.mkdir(incoming_root)
+
+        try:
+            while True:
+                # check out for any new distros in DB (except read-only snapshots) and create watchers for each component of distro, if any
+                distros = list(self.db.cacus.distros.find({'snapshot': {'$exists': False}, 'imported': {'$exists': False}}))
+                for distro_settings in distros:
+                    distro = distro_settings['distro']
+                    if distro not in self.watchers:
+                        self.watchers[distro] = {}
+
+                    components = [x['component'] for x in self.db.cacus.components.find({'distro': distro})]
+                    for comp in components:
+                        if comp not in self.watchers[distro]:
+                            incoming_dir = os.path.join(incoming_root, distro, comp)
+                            try:
+                                if not os.path.isdir(incoming_dir):
+                                    self.log.debug("Creating incoming dir '%s'", incoming_dir)
+                                    os.makedirs(incoming_dir, mode=0777)
+                            except Exception as e:
+                                self.log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
+                                continue
+                            handler = EventHandler(self, distro_settings, comp)
+                            wm = pyinotify.WatchManager()
+                            notifier = pyinotify.ThreadedNotifier(wm, handler)
+                            wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
+                            self.log.info("Starting notifier for '%s/%s' at %s, strict: %s", distro, comp, incoming_dir, distro_settings['strict'])
+                            notifier.start()
+                            self.watchers[distro][comp] = notifier
+
+                    abandoned = set(self.watchers[distro].keys()) - set(components)
+                    for comp in abandoned:
+                        self.log.info("Removing notifier for '%s/%s'", distro, comp)
+                        self.watchers[distro][comp].stop()
+                        del(self.watchers[distro][comp])
+                time.sleep(5)
+        except KeyboardInterrupt:
+            self._cleanup(self.watchers)
 
 
-def start_duploader():
-    watchers = {}
-    atexit.register(_cleanup, watchers)
-    incoming_root = common.config['duploader_daemon']['incoming_root']
-    if not os.path.isdir(incoming_root):
-        os.mkdir(incoming_root)
-
-    try:
-        while True:
-            # check out for any new distros in DB (except read-only snapshots) and create watchers for each component of distro, if any
-            distros = list(common.db_cacus.distros.find({'snapshot': {'$exists': False}, 'imported': {'$exists': False}}))
-            for distro_settings in distros:
-                distro = distro_settings['distro']
-                if distro not in watchers:
-                    watchers[distro] = {}
-
-                components = [x['component'] for x in common.db_cacus.components.find({'distro': distro})]
-                for comp in components:
-                    if comp not in watchers[distro]:
-                        incoming_dir = os.path.join(incoming_root, distro, comp)
-                        try:
-                            if not os.path.isdir(incoming_dir):
-                                log.debug("Creating incoming dir '%s'", incoming_dir)
-                                os.makedirs(incoming_dir, mode=0777)
-                        except Exception as e:
-                            log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
-                            continue
-                        handler = EventHandler(distro_settings, comp)
-                        wm = pyinotify.WatchManager()
-                        notifier = pyinotify.ThreadedNotifier(wm, handler)
-                        wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
-                        log.info("Starting notifier for '%s/%s' at %s, strict: %s", distro, comp, incoming_dir, distro_settings['strict'])
-                        notifier.start()
-                        watchers[distro][comp] = notifier
-
-                abandoned = set(watchers[distro].keys()) - set(components)
-                for comp in abandoned:
-                    log.info("Removing notifier for '%s/%s'", distro, comp)
-                    watchers[distro][comp].stop()
-                    del(watchers[distro][comp])
-            time.sleep(5)
-    except KeyboardInterrupt:
-        _cleanup(watchers)
+def start_daemon(config):
+    duploader = Duploader(config)
+    duploader.run()

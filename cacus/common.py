@@ -12,22 +12,12 @@ import hashlib
 import requests
 import logging
 import logging.handlers
-import StringIO
 from binascii import hexlify
 from threading import Event
 from itertools import chain, repeat
 from tornado.ioloop import IOLoop
 
 import plugin
-
-config = None
-db = None
-db_packages = None
-db_sources = None
-db_cacus = None
-gpg = None
-log = None
-default_arches = ['all', 'amd64', 'i386']
 
 
 class CacusError(Exception):
@@ -58,242 +48,195 @@ class DistroLockTimeout(CacusError):
     http_code = 409
 
 
-def initialize(config_file, mongo=None):
-    global config, db, gpg, log, db_cacus, db_packages, db_sources
-    if not config_file:
-        if os.path.isfile('/etc/cacus.yml'):
-            config_file = '/etc/cacus.yml'
-        else:
-            config_file = '/etc/cacus-default.yml'
-    with open(config_file) as cfg:
-        config = yaml.load(cfg)
+class Cacus(object):
+    default_arches = ['all', 'amd64', 'i386']
 
-    # logging
-    handlers = []
-    dst = config['logging']['destinations']
-    logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
-    if dst['console']:
-        h = logging.StreamHandler()
-        h.setFormatter(logFormatter)
-        handlers.append(h)
-    if dst['file']:
-        h = logging.handlers.WatchedFileHandler(dst['file'])
-        h.setFormatter(logFormatter)
-        handlers.append(h)
-    if dst['syslog']:
-        h = logging.handlers.SysLogHandler(facility=dst['syslog'])
-        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
-        handlers.append(h)
-
-    rootLogger = logging.getLogger('')
-    rootLogger.setLevel(logging.DEBUG)
-    for handler in handlers:
-        rootLogger.addHandler(handler)
-
-    log = logging.getLogger('cacus.common')
-
-    # GPG
-    try:
-        gpg = gnupg.GPG(homedir=config['gpg']['home'])
-        keys = [x for x in gpg.list_keys(secret=True) if config['gpg']['sign_key'] in x['keyid']]
-        if len(keys) < 1:
-            raise Exception("Cannot find secret key with ID {}".format(config['gpg']['sign_key']))
-    except Exception as e:
-        log.critical("GPG initialization error: %s", e)
-        sys.exit(1)
-
-    # mongo
-    if not mongo:
-        config['db']['connect'] = False
-        db = pymongo.MongoClient(**(config['db']))
-        db_cacus = db['cacus']
-        db_packages = db['packages']
-        db_sources = db['sources']
-    else:
-        db_cacus = mongo['cacus']
-        db_packages = mongo['packages']
-        db_sources = mongo['sources']
-
-    # plugins
-    plugin.load_plugins()
-
-    # misc
-    config['repo_daemon']['repo_base'] = config['repo_daemon']['repo_base'].rstrip('/')
-    config['repo_daemon']['storage_subdir'] = config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
-
-
-def create_cacus_indexes():
-    log.info("Creating indexes for cacus.distros...")
-    db_cacus.distros.create_index('distro', unique=True)
-    db_cacus.distros.create_index('snapshot')
-
-    log.info("Creating indexes for cacus.components...")
-    db_cacus.components.create_index(
-        [('distro', pymongo.DESCENDING),
-         ('component', pymongo.DESCENDING)],
-        unique=True)
-    db_cacus.components.create_index('snapshot')
-
-    log.info("Creating indexes for cacus.repos...")
-    db_cacus.repos.create_index(
-        [('distro', pymongo.DESCENDING),
-         ('component', pymongo.DESCENDING),
-         ('architecture', pymongo.DESCENDING)],
-        unique=True)
-
-    log.info("Creating indexes for cacus.locks...")
-    db_cacus.locks.create_index([
-        ('distro', pymongo.DESCENDING),
-        ('comp', pymongo.DESCENDING)],
-        unique=True)
-    db_cacus.locks.create_index('modified', expireAfterSeconds=config['lock_cleanup_timeout'])
-
-
-def create_packages_indexes(distros=None):
-    if not distros:
-        distros = db_packages.collection_names()
-
-    for distro in distros:
-        log.info("Creating indexes for packages.%s...", distro)
-        db_packages[distro].create_index(
-            [('Package', pymongo.DESCENDING),
-             ('Version', pymongo.DESCENDING),
-             ('Architecture', pymongo.DESCENDING)],
-            unique=True)
-        db_packages[distro].create_index(
-            [('components', pymongo.DESCENDING),
-             ('Architecture', pymongo.DESCENDING)])
-        db_packages[distro].create_index('source')
-
-        db_sources[distro].create_index(
-            [('Package', pymongo.DESCENDING),
-             ('Version', pymongo.DESCENDING)],
-            unique=True)
-        db_sources[distro].create_index('components')
-
-
-def get_hashes(file=None, filename=None):
-    if filename:
-        file = open(filename)
-
-    md5 = hashlib.md5()
-    sha1 = hashlib.sha1()
-    sha256 = hashlib.sha256()
-    sha512 = hashlib.sha512()
-
-    fpos = file.tell()
-    file.seek(0)
-
-    for chunk in iter(lambda: file.read(4096), b''):
-        md5.update(chunk)
-        sha1.update(chunk)
-        sha256.update(chunk)
-        sha512.update(chunk)
-
-    file.seek(fpos)
-
-    if filename:
-        file.close()
-
-    return {'md5': md5.digest(), 'sha1': sha1.digest(), 'sha256': sha256.digest(), 'sha512': sha512.digest()}
-
-
-def sanitize_filename(file):
-    """ As far as mongodb does not accept dot symbol in document keys
-    we should replace all dots in filenames (that are used as keys) with smth else
-    """
-    return file.replace(".", "___")
-
-
-def desanitize_filename(file):
-    return file.replace("___", ".")
-
-
-def download_file(url, filename=None, md5=None, sha1=None, sha256=None):
-    log = logging.getLogger("cacus.downloader")
-    if not filename:
-        filename = os.path.join(config['duploader_daemon']['incoming_root'], "cacus_tmp_" + str(uuid.uuid1()))
-
-    try:
-        total_bytes = 0
-        log.debug("Downloading %s to %s", url, filename)
-        r = requests.get(url, stream=True)
-        if r.status_code == 200:
-            _md5 = hashlib.md5()
-            _sha1 = hashlib.sha1()
-            _sha256 = hashlib.sha256()
-            with open(filename, 'w') as f:
-                for chunk in r.iter_content(4*1024*1024):
-                    total_bytes += len(chunk)
-                    f.write(chunk)
-                    _md5.update(chunk)
-                    _sha1.update(chunk)
-                    _sha256.update(chunk)
-                _md5 = _md5.digest()
-                _sha1 = _sha1.digest()
-                _sha256 = _sha256.digest()
-            if sha256 and sha256 != _sha256:
-                raise TemporaryError("SHA256 mismatch for {}: got {} instead of {}".format(url, hexlify(_sha256), hexlify(sha256)))
-            if sha1 and sha1 != _sha1:
-                raise TemporaryError("SHA1 mismatch for {}: got {} instead of {}".format(url, hexlify(_sha1), hexlify(sha1)))
-            if md5 and md5 != _md5:
-                raise TemporaryError("MD5 mismatch for {}: got {} instead of {}".format(url, hexlify(_md5), hexlify(md5)))
-        elif r.status_code == 404:
-            r.close()
-            raise NotFound("{} returned {} {}".format(url, r.status_code, r.reason))
-        else:
-            r.close()
-            raise TemporaryError("{} returned {} {}".format(url, r.status_code, r.reason))
-        log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
-        r.close()
-    except (requests.ConnectionError, requests.HTTPError) as e:
-        raise TemporaryError("Cannot fetch {}: {}".format(url, e))
-    except requests.Timeout as e:
-        raise Timeout("Cannot fetch {}: {}".format(url, e))
-    except IOError as e:
-        raise FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
-
-    return filename
-
-
-def gpg_sign(data):
-    signature = gpg.sign(data, default_key=config['gpg']['sign_key'], detach=True, clearsign=False)
-    return signature.data
-
-
-def with_retries(fun, *args, **kwargs):
-    delays = config['retry_delays']
-    # repeat last delay infinitely
-    delays = chain(delays[:-1], repeat(delays[-1]))
-    exc = Exception("Don't blink!")
-    for try_ in xrange(config['retry_count']):
-            try:
-                result = fun(*args, **kwargs)
-            except (Timeout, TemporaryError, DistroLockTimeout) as e:
-                exc = e
-                pass
-            except (FatalError, NotFound, Exception):
-                raise
+    def __init__(self, config_file, mongo=None):
+        if not config_file:
+            if os.path.isfile('/etc/cacus.yml'):
+                config_file = '/etc/cacus.yml'
             else:
-                break
-            time.sleep(delays.next())
-    else:
-        raise exc
-    return result
+                config_file = '/etc/cacus-default.yml'
+        with open(config_file) as cfg:
+            self.config = yaml.load(cfg)
 
+        # logging
+        handlers = []
+        dst = self.config['logging']['destinations']
+        logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
+        if dst['console']:
+            h = logging.StreamHandler()
+            h.setFormatter(logFormatter)
+            handlers.append(h)
+        if dst['file']:
+            h = logging.handlers.WatchedFileHandler(dst['file'])
+            h.setFormatter(logFormatter)
+            handlers.append(h)
+        if dst['syslog']:
+            h = logging.handlers.SysLogHandler(facility=dst['syslog'])
+            h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
+            handlers.append(h)
 
-class myStringIO(StringIO.StringIO):
+        self._rootLogger = logging.getLogger('')
 
-    def __init__(self, *args, **kwargs):
-        StringIO.StringIO.__init__(self, *args, **kwargs)
+        levels = {
+            'debug': logging.DEBUG, 'info': logging.INFO, 'warning': logging.WARNING,
+            'error': logging.ERROR, 'critical': logging.CRITICAL
+        }
+        self._rootLogger.setLevel(levels[self.config['logging']['level']])
+        for handler in handlers:
+            self._rootLogger.addHandler(handler)
 
-    def __enter__(self):
-        self.seek(0)
-        return self
+        self.log = logging.getLogger('cacus.{}'.format(type(self).__name__))
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        # close() on StringIO will free memory buffer, so 'with' statement is destructive
-        self.close()
+        # GPG
+        try:
+            self.gpg = gnupg.GPG(homedir=self.config['gpg']['home'])
+            keys = [x for x in self.gpg.list_keys(secret=True) if self.config['gpg']['sign_key'] in x['keyid']]
+            if len(keys) < 1:
+                raise Exception("Cannot find secret key with ID {}".format(self.config['gpg']['sign_key']))
+        except Exception as e:
+            self.log.critical("GPG initialization error: %s", e)
+            sys.exit(1)
+
+        # mongo
+        if not mongo:
+            self.config['db']['connect'] = False
+            self.db = pymongo.MongoClient(**(self.config['db']))
+        else:
+            self.db = mongo
+
+        # plugins
+        self._plugins = plugin.load_plugins(self.config)
+        self.storage = self._plugins['storage'].plugin_object
+
+        # misc
+        self.config['repo_daemon']['repo_base'] = self.config['repo_daemon']['repo_base'].rstrip('/')
+        self.config['repo_daemon']['storage_subdir'] = self.config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
+
+    def create_cacus_indexes(self):
+        self.log.info("Creating indexes for cacus.distros...")
+        self.db.cacus.distros.create_index('distro', unique=True)
+        self.db.cacus.distros.create_index('snapshot')
+
+        self.log.info("Creating indexes for cacus.components...")
+        self.db.cacus.components.create_index(
+            [('distro', pymongo.DESCENDING),
+             ('component', pymongo.DESCENDING)],
+            unique=True)
+        self.db.cacus.components.create_index('snapshot')
+
+        self.log.info("Creating indexes for cacus.repos...")
+        self.db.cacus.repos.create_index(
+            [('distro', pymongo.DESCENDING),
+             ('component', pymongo.DESCENDING),
+             ('architecture', pymongo.DESCENDING)],
+            unique=True)
+
+        self.log.info("Creating indexes for cacus.locks...")
+        self.db.cacus.locks.create_index([
+            ('distro', pymongo.DESCENDING),
+            ('comp', pymongo.DESCENDING)],
+            unique=True)
+        self.db.cacus.locks.create_index('modified', expireAfterSeconds=self.config['lock_cleanup_timeout'])
+
+    def create_packages_indexes(self, distros=None):
+        if not distros:
+            distros = self.db.packages.collection_names()
+
+        for distro in distros:
+            self.log.info("Creating indexes for packages.%s...", distro)
+            self.db.packages[distro].create_index(
+                [('Package', pymongo.DESCENDING),
+                 ('Version', pymongo.DESCENDING),
+                 ('Architecture', pymongo.DESCENDING)],
+                unique=True)
+            self.db.packages[distro].create_index(
+                [('components', pymongo.DESCENDING),
+                 ('Architecture', pymongo.DESCENDING)])
+            self.db.packages[distro].create_index('source')
+
+            self.db.sources[distro].create_index(
+                [('Package', pymongo.DESCENDING),
+                 ('Version', pymongo.DESCENDING)],
+                unique=True)
+            self.db.sources[distro].create_index('components')
+
+    @staticmethod
+    def get_hashes(file=None, filename=None):
+        if filename:
+            file = open(filename)
+
+        md5 = hashlib.md5()
+        sha1 = hashlib.sha1()
+        sha256 = hashlib.sha256()
+        sha512 = hashlib.sha512()
+
+        fpos = file.tell()
+        file.seek(0)
+
+        for chunk in iter(lambda: file.read(4096), b''):
+            md5.update(chunk)
+            sha1.update(chunk)
+            sha256.update(chunk)
+            sha512.update(chunk)
+
+        file.seek(fpos)
+
+        if filename:
+            file.close()
+
+        return {'md5': md5.digest(), 'sha1': sha1.digest(), 'sha256': sha256.digest(), 'sha512': sha512.digest()}
+
+    def download_file(self, url, filename=None, md5=None, sha1=None, sha256=None):
+        log = logging.getLogger("cacus.downloader")
+        if not filename:
+            filename = os.path.join(self.config['duploader_daemon']['incoming_root'], "cacus_tmp_" + str(uuid.uuid1()))
+
+        try:
+            total_bytes = 0
+            log.debug("Downloading %s to %s", url, filename)
+            r = requests.get(url, stream=True)
+            if r.status_code == 200:
+                _md5 = hashlib.md5()
+                _sha1 = hashlib.sha1()
+                _sha256 = hashlib.sha256()
+                with open(filename, 'w') as f:
+                    for chunk in r.iter_content(4*1024*1024):
+                        total_bytes += len(chunk)
+                        f.write(chunk)
+                        _md5.update(chunk)
+                        _sha1.update(chunk)
+                        _sha256.update(chunk)
+                    _md5 = _md5.digest()
+                    _sha1 = _sha1.digest()
+                    _sha256 = _sha256.digest()
+                if sha256 and sha256 != _sha256:
+                    raise TemporaryError("SHA256 mismatch for {}: got {} instead of {}".format(url, hexlify(_sha256), hexlify(sha256)))
+                if sha1 and sha1 != _sha1:
+                    raise TemporaryError("SHA1 mismatch for {}: got {} instead of {}".format(url, hexlify(_sha1), hexlify(sha1)))
+                if md5 and md5 != _md5:
+                    raise TemporaryError("MD5 mismatch for {}: got {} instead of {}".format(url, hexlify(_md5), hexlify(md5)))
+            elif r.status_code == 404:
+                r.close()
+                raise NotFound("{} returned {} {}".format(url, r.status_code, r.reason))
+            else:
+                r.close()
+                raise TemporaryError("{} returned {} {}".format(url, r.status_code, r.reason))
+            log.debug("GET %s %s %s bytes %s sec", url, r.status_code, total_bytes, r.elapsed.total_seconds())
+            r.close()
+        except (requests.ConnectionError, requests.HTTPError) as e:
+            raise TemporaryError("Cannot fetch {}: {}".format(url, e))
+        except requests.Timeout as e:
+            raise Timeout("Cannot fetch {}: {}".format(url, e))
+        except IOError as e:
+            raise FatalError("Cannot fetch {} to {}: {}".format(url, filename, e))
+
+        return filename
+
+    def gpg_sign(self, data):
+        signature = self.gpg.sign(data, default_key=self.config['gpg']['sign_key'], detach=True, clearsign=False)
+        return signature.data
 
 
 class ProxyStream(object):
@@ -327,15 +270,16 @@ class ProxyStream(object):
             raise IOError("Client has closed connection")
 
 
-class DistroLock:
+class DistroLock(object):
     """ Poor man's implementation of distributed lock in mongodb.
     Ostrich algorithm used for dealing with deadlocks. You can always add some retries if returning 409 is not an option
     """
 
-    def __init__(self, distro, comps=None, timeout=30):
+    def __init__(self, db, distro, comps=None, timeout=30):
+        self.db = db
         self.distro = distro
         if not comps:
-            self.comps = [x['component'] for x in db_cacus.components.find({'distro': distro}, {'component': 1})]
+            self.comps = [x['component'] for x in self.db.cacus.components.find({'distro': distro}, {'component': 1})]
         else:
             self.comps = comps
         self.timeout = timeout
@@ -344,7 +288,7 @@ class DistroLock:
     def _unlock(self, comps):
         for comp in comps:
             try:
-                db_cacus.locks.find_one_and_update(
+                self.db.cacus.locks.find_one_and_update(
                     {'distro': self.distro, 'comp': comp, 'locked': 1},
                     {
                         '$set': {'distro': self.distro, 'comp': comp, 'locked': 0},
@@ -363,7 +307,7 @@ class DistroLock:
             locked = []
             for comp in self.comps:
                 try:
-                    db_cacus.locks.find_one_and_update(
+                    self.db.cacus.locks.find_one_and_update(
                         {'distro': self.distro, 'comp': comp, 'locked': 0},
                         {
                             '$set': {'distro': self.distro, 'comp': comp, 'locked': 1},
@@ -389,3 +333,23 @@ class DistroLock:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self._unlock(self.comps)
+
+
+def with_retries(attempts, delays, fun, *args, **kwargs):
+    # repeat last delay infinitely
+    delays = chain(delays[:-1], repeat(delays[-1]))
+    exc = Exception("Don't blink!")
+    for try_ in xrange(attempts):
+            try:
+                result = fun(*args, **kwargs)
+            except (Timeout, TemporaryError, DistroLockTimeout) as e:
+                exc = e
+                pass
+            except (FatalError, NotFound, Exception):
+                raise
+            else:
+                break
+            time.sleep(delays.next())
+    else:
+        raise exc
+    return result
