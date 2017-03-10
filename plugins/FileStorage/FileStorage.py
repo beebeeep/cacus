@@ -38,8 +38,10 @@ class FileStorage(IStoragePlugin):
             try:
                 os.makedirs(storage_dir)
             except Exception as e:
-                log.critical("Cannot create path for given key '%s': %s", key, e)
-                raise common.FatalError(e)
+                if e.errno != os.errno.EEXIST:
+                    # ignore EEXIST error (can be caused by dir already created in another thread)
+                    log.critical("Cannot create path for given key '%s': %s", key, e)
+                    raise common.FatalError(e)
 
         if filename:
             log.debug("Uploading from %s to %s", filename, storage_path)

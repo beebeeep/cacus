@@ -1,3 +1,21 @@
+cacus (0.5-4) unstable; urgency=medium
+
+  * Ignore EEXIST error in FileStorage plugin (threading issues)
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Fri, 10 Mar 2017 09:01:34 +0000
+
+cacus (0.5-3) unstable; urgency=medium
+
+  * Update metadata for all new distros
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Fri, 10 Mar 2017 08:45:45 +0000
+
+cacus (0.5-2) unstable; urgency=medium
+
+  * Fixed duploader for non-strict distros
+
+ -- Daniil Migalin <midanil@microsoft.com>  Thu, 09 Mar 2017 13:10:15 +0000
+
 cacus (0.5-1) unstable; urgency=medium
 
   * Added incoming dirs for each component of each Distro
