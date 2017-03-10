@@ -37,7 +37,9 @@ def create_distro(distro, description, components, gpg_check, strict, incoming_w
         with common.DistroLock(distro, to_delete):
             for deleted in to_delete:
                 _delete_component(distro, deleted)
-            update_distro_metadata(distro)
+
+    # even empty distro deserves to have proper Release file and Package&Sources indices
+    update_distro_metadata(distro)
 
     return old_distro
 
