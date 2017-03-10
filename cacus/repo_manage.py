@@ -15,10 +15,12 @@ import common
 
 
 class RepoManager(common.Cacus):
-    def create_distro(self, distro, description, components, gpg_check, strict, incoming_wait_timeout):
+    def create_distro(self, distro, description, components, gpg_check, strict, simple, incoming_wait_timeout):
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
-            {'$set': {'gpg_check': gpg_check, 'strict': strict, 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+            {'$set': {
+                'gpg_check': gpg_check, 'strict': strict, 'simple': simple,
+                'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
             return_document=ReturnDocument.BEFORE,
             upsert=True)
 
@@ -265,7 +267,7 @@ class RepoManager(common.Cacus):
                 upsert=True)
 
         # Do not delete old indices from storage as they may be used by some distro snapshot
-        if not force and old_repo and 'packages_file' in old_repo:
+        if not force and old_repo and 'packages_file' in old_repo and old_repo['packages_file'] != storage_key:
             old_key = old_repo['packages_file']
             snapshots = self.db.cacus.repos.find(
                 {'snapshot.origin': distro, 'component': comp, 'architecture': arch},
@@ -279,6 +281,8 @@ class RepoManager(common.Cacus):
                     self.storage.delete(old_key)
                 except common.NotFound:
                     self.log.warning("Cannot find old Packages file")
+                except common.FatalError:
+                    self.log.warning("Cannot delete old Sources file")
 
     def _update_sources(self, distro, comp, now, force):
         """ Updates Sources index
@@ -316,7 +320,7 @@ class RepoManager(common.Cacus):
                 upsert=True)
 
         # check whether previous indice is not used by some snapshot and remove it from storage
-        if not force and old_component and 'sources_file' in old_component:
+        if not force and old_component and 'sources_file' in old_component and 'sources_file' != storage_key:
             old_key = old_component['sources_file']
             snapshots = self.db.cacus.components.find(
                 {'snapshot': {'origin': distro}, 'component': comp},
@@ -330,6 +334,8 @@ class RepoManager(common.Cacus):
                     self.storage.delete(old_key)
                 except common.NotFound:
                     self.log.warning("Cannot find old Sources file")
+                except common.FatalError:
+                    self.log.warning("Cannot delete old Sources file")
 
     def update_distro_metadata(self, distro, comps=None, arches=None, force=False):
         """ Updates distro's indices (Packages,Sources and Release file)
@@ -401,8 +407,6 @@ class RepoManager(common.Cacus):
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         repo = self.db.packages[distro].find({'components': comp, 'Architecture': {'$in': [arch, 'all']}})
         for pkg in repo:
-            self.log.debug("Processing %s_%s", pkg['Package'], pkg['Version'])
-
             path = pkg['storage_key']
             if not path.startswith('extstorage'):
                 path = os.path.join(self.config['repo_daemon']['storage_subdir'], path)

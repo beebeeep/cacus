@@ -6,6 +6,7 @@ import time
 import atexit
 import pyinotify
 import threading
+import Queue
 from binascii import hexlify
 from debian import deb822
 
@@ -13,7 +14,11 @@ import common
 import repo_manage
 
 
-class EventHandler(pyinotify.ProcessEvent):
+class ComplexDistroWatcher(pyinotify.ProcessEvent):
+    """ inotify watcher with full set of features.
+    Supports including .changes file signature check, uploading of package sources etc.
+    Also can upload single .deb binary packages.
+    """
 
     def __init__(self, repo_manager, settings, component):
         self.repo_manager = repo_manager
@@ -36,16 +41,16 @@ class EventHandler(pyinotify.ProcessEvent):
                 raise Exception("Bad PGP data")
         return result.username
 
-    def _process_single_deb(self, distro, component, file):
+    def _process_single_deb(self, file):
         if os.path.isfile(file) and file in self.uploaded_files:
             # if file is still exists and wasn't picked by some _processChangesFile(),
             # assume that it was meant to be uploaded as signle package
             with self.uploaded_files_lock:
                 self.uploaded_files.pop(file)
-            self.log.debug("Uploading %s to %s/%s", file, distro, component)
+            self.log.debug("Uploading %s to %s/%s", file, self.distro, self.component)
             try:
                 common.with_retries(self.repo_manager.config['retry_count'], self.repo_manager.config['retry_delays'],
-                                    self.repo_manager.upload_package, distro, component, [file], changes=None, forceUpdateMeta=True)
+                                    self.repo_manager.upload_package, self.distro, self.component, [file], changes=None, forceUpdateMeta=True)
             except Exception as e:
                 self.log.error("Error while uploading DEB %s: %s", file, e)
             os.unlink(file)
@@ -142,9 +147,53 @@ class EventHandler(pyinotify.ProcessEvent):
         # so schedule uploader worker after 2*incoming timeout (i.e. deb was not picked by _processChangesFile)
         if not self.strict and (event.pathname.endswith('.deb') or event.pathname.endswith('.udeb')):
             self.log.info("Will upload it within %s seconds", 2*self.incoming_wait_timeout)
-            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(self.distro, self.component, event.pathname))
+            uploader = threading.Timer(2*self.incoming_wait_timeout, self._process_single_deb, args=(event.pathname,))
             uploader.daemon = True
             uploader.start()
+
+
+class SimpleDistroWatcher(pyinotify.ProcessEvent):
+    """ inotify watcher for simple repos
+    Supports simple, binary-only distibutions, which though is enough for most of users.
+    Faster than ComplexDistroWatcher because packages are uploaded immidiately, without waiting for .changes file
+    """
+
+    def __init__(self, repo_manager, settings, component):
+        self.repo_manager = repo_manager
+        self.distro = settings['distro']
+        self.component = component
+        self.log = repo_manager.log
+        self.queue = Queue.Queue()
+        self.worker = threading.Thread(target=self._worker)
+        self.worker.daemon = True
+        self.worker.start()
+
+    def __del__(self):
+        self.log.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!dying")
+        print "111111111111111111111111111"
+
+    def _worker(self):
+        count = 0
+        while True:
+            file = self.queue.get()
+            self.log.debug("Uploading %s to %s/%s", file, self.distro, self.component)
+            try:
+                common.with_retries(self.repo_manager.config['retry_count'], self.repo_manager.config['retry_delays'],
+                                    self.repo_manager.upload_package, self.distro, self.component, [file], changes=None, skipUpdateMeta=True)
+                count += 1
+            except Exception as e:
+                self.log.error("Error while uploading DEB %s: %s", file, e)
+            os.unlink(file)
+            if self.queue.empty() or count >= 10:
+                count = 0
+                self.repo_manager.update_distro_metadata(self.distro, comps=[self.component])
+
+    def process_IN_CLOSE_WRITE(self, event):
+        self.log.info("Got file %s", event.pathname)
+        if event.pathname.endswith('.deb') or event.pathname.endswith('.udeb'):
+            self.queue.put(event.pathname)
+        else:
+            os.unlink(event.pathname)
 
 
 class Duploader(repo_manage.RepoManager):
@@ -184,11 +233,16 @@ class Duploader(repo_manage.RepoManager):
                             except Exception as e:
                                 self.log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
                                 continue
-                            handler = EventHandler(self, distro_settings, comp)
+
+                            if distro_settings.get('simple', True):
+                                handler = SimpleDistroWatcher(self, distro_settings, comp)
+                            else:
+                                handler = ComplexDistroWatcher(self, distro_settings, comp)
                             wm = pyinotify.WatchManager()
                             notifier = pyinotify.ThreadedNotifier(wm, handler)
                             wm.add_watch(incoming_dir, pyinotify.ALL_EVENTS)
-                            self.log.info("Starting notifier for '%s/%s' at %s, strict: %s", distro, comp, incoming_dir, distro_settings['strict'])
+                            self.log.info("Starting %s for '%s/%s' at %s, strict: %s",
+                                          type(handler).__name__, distro, comp, incoming_dir, distro_settings['strict'])
                             notifier.start()
                             self.watchers[distro][comp] = notifier
 

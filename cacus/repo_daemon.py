@@ -58,6 +58,7 @@ class CachedRequestHandler(RequestHandler):
             raise gen.Return((True, latest_dt))
 
 
+# TODO JSON schema?
 class JsonRequestHandler(RequestHandler):
 
     def _get_json_request(self):
@@ -74,14 +75,20 @@ class JsonRequestHandler(RequestHandler):
             raise Finish()
 
         class JsonRequestData(dict):
+            def __init__(self, request, *args, **kwargs):
+                self._request = request
+                super(JsonRequestData, self).__init__(*args, **kwargs)
+
             def __getitem__(self, key):
                 try:
                     return dict.__getitem__(self, key)
                 except KeyError:
                     app_log.error("Missing required argument %s", key)
-                    raise MissingArgumentError(key)
+                    self._request.set_status(400)
+                    self._request.write({'success': False, 'msg': "Missing required argument '{}'".format(key)})
+                    raise Finish()
 
-        return JsonRequestData(req)
+        return JsonRequestData(self, req)
 
 
 class StorageHandler(RequestHandler):
@@ -287,10 +294,20 @@ class ApiDistroCreateHandler(JsonRequestHandler):
     @gen.coroutine
     def post(self, distro):
         req = self._get_json_request()
+        comps = req['components']
+        description = req['description']
+        simple=req['simple']
+        if not simple:
+            gpg_check = req['gpg_check']
+            strict = req['strict']
+            incoming_wait_timeout = req['incoming_timeout']
+        else:
+            gpg_check = strict = incoming_wait_timeout = None
+
         try:
-            old = yield self.settings['workers'].submit(self.settings['manager'].create_distro, distro=distro, description=req['description'],
-                                                        components=req['components'], gpg_check=req['gpg_check'], strict=req['strict'],
-                                                        incoming_wait_timeout=req['incoming_timeout'])
+            old = yield self.settings['workers'].submit(self.settings['manager'].create_distro, distro=distro, description=description,
+                                                        components=comps, gpg_check=gpg_check, strict=strict, simple=simple,
+                                                        incoming_wait_timeout=incoming_wait_timeout)
             if not old:
                 self.set_status(201)
                 self.write({'success': True, 'msg': 'repo created'})
