@@ -6,12 +6,8 @@ import logging
 from yapsy.PluginManager import PluginManager
 from yapsy.IPlugin import IPlugin
 
-import common
-
-loaded_plugins = {}
 log = logging.getLogger('cacus.loader')
 yapsy_log = logging.getLogger('yapsy')
-manager = None
 
 
 class IStoragePlugin(IPlugin):
@@ -30,11 +26,12 @@ class PluginInitException(Exception):
     pass
 
 
-def load_plugins():
+def load_plugins(config):
+    loaded_plugins = {}
     manager = PluginManager()
 
     cwd = os.path.abspath(os.path.dirname(__file__))
-    plugin_dirs = common.config.get('plugin_path', [])
+    plugin_dirs = config.get('plugin_path', [])
     plugin_dirs.append(os.path.join(cwd, 'plugins'))
     log.debug("Searching plugins in %s", plugin_dirs)
     manager.setPluginPlaces(plugin_dirs)
@@ -45,7 +42,7 @@ def load_plugins():
 
     for category in ('storage',):
         try:
-            cfg = common.config[category]
+            cfg = config[category]
             for p in manager.getPluginsOfCategory(category):
                 log.info("Found plugin %s", p.name)
                 if p.name == cfg['type']:
@@ -57,6 +54,4 @@ def load_plugins():
         except:
             log.exception('Unable to load plugin category %s', category)
 
-
-def get_plugin(category):
-    return loaded_plugins[category].plugin_object
+    return loaded_plugins

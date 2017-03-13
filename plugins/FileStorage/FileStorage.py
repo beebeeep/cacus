@@ -73,9 +73,12 @@ class FileStorage(IStoragePlugin):
                 raise common.NotFound('File not found')
             else:
                 f = open(fname, 'r')
+        except common.NotFound:
+            raise
         except Exception as e:
             log.error("Cannot open file %s: %s", key, e)
-            common.FatalError(e)
+            raise common.FatalError(e)
+
         for chunk in iter(lambda: f.read(4*1024*1024), b''):
             try:
                 stream.write(chunk)

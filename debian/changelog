@@ -1,3 +1,17 @@
+cacus (0.6-2) unstable; urgency=medium
+
+  * Proper cleanup after distro removal
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 13 Mar 2017 15:14:07 +0000
+
+cacus (0.6-1) unstable; urgency=medium
+
+  * Refactored code
+  * Added "simple" duploader - for binary-only repos
+  * Added distro removal
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Fri, 10 Mar 2017 19:34:15 +0000
+
 cacus (0.5-4) unstable; urgency=medium
 
   * Ignore EEXIST error in FileStorage plugin (threading issues)

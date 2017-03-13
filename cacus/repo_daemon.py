@@ -16,7 +16,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import common
 import repo_manage
-import plugin
 
 
 access_log = logging.getLogger('tornado.access')
@@ -59,6 +58,7 @@ class CachedRequestHandler(RequestHandler):
             raise gen.Return((True, latest_dt))
 
 
+# TODO JSON schema?
 class JsonRequestHandler(RequestHandler):
 
     def _get_json_request(self):
@@ -75,14 +75,20 @@ class JsonRequestHandler(RequestHandler):
             raise Finish()
 
         class JsonRequestData(dict):
+            def __init__(self, request, *args, **kwargs):
+                self._request = request
+                super(JsonRequestData, self).__init__(*args, **kwargs)
+
             def __getitem__(self, key):
                 try:
                     return dict.__getitem__(self, key)
                 except KeyError:
                     app_log.error("Missing required argument %s", key)
-                    raise MissingArgumentError(key)
+                    self._request.set_status(400)
+                    self._request.write({'success': False, 'msg': "Missing required argument '{}'".format(key)})
+                    raise Finish()
 
-        return JsonRequestData(req)
+        return JsonRequestData(self, req)
 
 
 class StorageHandler(RequestHandler):
@@ -97,7 +103,7 @@ class StorageHandler(RequestHandler):
         self.set_header('Content-Type', 'application/octet-stream')
         # TODO last-modified, content-length and other metadata _should_ be provided!
         try:
-            yield self.settings['workers'].submit(plugin.get_plugin('storage').get, key, stream)
+            yield self.settings['workers'].submit(self.settings['manager'].storage.get, key, stream)
         except common.NotFound:
             self.set_status(404)
             app_log.error("Key %s was not found at storage", key)
@@ -142,7 +148,7 @@ class PackagesHandler(CachedRequestHandler, StorageHandler):
 
         doc = yield db.cacus.repos.find_one({'distro': distro, 'component': comp, 'architecture': arch})
         if doc:
-            s = common.config['repo_daemon']
+            s = self.settings['config']['repo_daemon']
             if s['proxy_storage']:
                 headers = [('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt))]
                 yield self.stream_from_storage(doc['packages_file'], headers=headers)
@@ -179,7 +185,7 @@ class SourcesHandler(CachedRequestHandler, StorageHandler):
 
         doc = yield db.cacus.components.find_one({'distro': distro, 'component': comp})
         if doc:
-            s = common.config['repo_daemon']
+            s = self.settings['config']['repo_daemon']
             if s['proxy_storage']:
                 headers = [('Content-Length', doc['size']), ('Last-Modified', httputil.format_timestamp(dt))]
                 yield self.stream_from_storage(doc['sources_file'], headers=headers)
@@ -203,7 +209,7 @@ class SourcesFilesHandler(CachedRequestHandler):
                                                     {'sources.storage_key': 1, 'sources.name': 1})
         for f in doc['sources']:
             if f['name'] == file:
-                s = common.config['repo_daemon']
+                s = self.settings['config']['repo_daemon']
                 url = os.path.join(s['repo_base'], f['storage_key'])
                 app_log.info("Redirecting %s to %s", file, url)
                 self.add_header("X-Accel-Redirect", url)
@@ -220,6 +226,9 @@ class ReleaseHandler(CachedRequestHandler):
         if not expired:
             self.set_status(304)
             return
+        if not dt:
+            self.set_status(404)
+            return
         self.add_header('Last-Modified', httputil.format_timestamp(dt))
         self.set_header('Content-Type', 'application/octet-stream')
 
@@ -235,7 +244,7 @@ class ApiDistroReindexHandler(JsonRequestHandler):
     @gen.coroutine
     def post(self, distro):
         try:
-            yield self.settings['workers'].submit(repo_manage.update_distro_metadata, distro=distro, force=True)
+            yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro, force=True)
         except common.NotFound as e:
             self.set_status(404)
             self.write({'success': False, 'msg': e.message})
@@ -261,7 +270,7 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
     def delete(self, distro):
         snapshot = self._get_json_request()['snapshot']
         try:
-            msg = yield self.settings['workers'].submit(repo_manage.delete_snapshot, distro=distro, name=snapshot)
+            msg = yield self.settings['workers'].submit(self.settings['manager'].delete_snapshot, distro=distro, name=snapshot)
         except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
@@ -272,7 +281,7 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
     def post(self, distro):
         snapshot = self._get_json_request()['snapshot']
         try:
-            msg = yield self.settings['workers'].submit(repo_manage.create_snapshot, distro=distro, name=snapshot)
+            msg = yield self.settings['workers'].submit(self.settings['manager'].create_snapshot, distro=distro, name=snapshot)
         except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
@@ -285,10 +294,20 @@ class ApiDistroCreateHandler(JsonRequestHandler):
     @gen.coroutine
     def post(self, distro):
         req = self._get_json_request()
+        comps = req['components']
+        description = req['description']
+        simple=req['simple']
+        if not simple:
+            gpg_check = req['gpg_check']
+            strict = req['strict']
+            incoming_wait_timeout = req['incoming_timeout']
+        else:
+            gpg_check = strict = incoming_wait_timeout = None
+
         try:
-            old = yield self.settings['workers'].submit(repo_manage.create_distro, distro=distro, description=req['description'],
-                                                        components=req['components'], gpg_check=req['gpg_check'], strict=req['strict'],
-                                                        incoming_wait_timeout=req['incoming_timeout'])
+            old = yield self.settings['workers'].submit(self.settings['manager'].create_distro, distro=distro, description=description,
+                                                        components=comps, gpg_check=gpg_check, strict=strict, simple=simple,
+                                                        incoming_wait_timeout=incoming_wait_timeout)
             if not old:
                 self.set_status(201)
                 self.write({'success': True, 'msg': 'repo created'})
@@ -298,6 +317,19 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
+
+
+class ApiDistroRemoveHandler(RequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        try:
+            msg = yield self.settings['workers'].submit(self.settings['manager'].remove_distro, distro)
+        except common.CacusError as e:
+            self.set_status(e.http_code)
+            self.write({'success': False, 'msg': e.message})
+            return
+        self.write({'success': True, 'msg': msg})
 
 
 @stream_request_body
@@ -316,7 +348,7 @@ class ApiPkgUploadHandler(RequestHandler):
     def prepare(self):
         app_log.debug("Got some file: Content-Type %s, Content-Length %s",
                       self.request.headers.get('Content-Type', 'N/A'), self.request.headers.get('Content-Length', 'N/A'))
-        self._filename = os.path.join(common.config['duploader_daemon']['incoming_root'], str(uuid.uuid1()) + ".deb")
+        self._filename = os.path.join(self.settings['config']['duploader_daemon']['incoming_root'], str(uuid.uuid1()) + ".deb")
         try:
             self._file = open(self._filename, 'w')
         except Exception as e:
@@ -351,7 +383,8 @@ class ApiPkgUploadHandler(RequestHandler):
             if distro_settings['strict']:
                 raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
 
-            r = yield self.settings['workers'].submit(repo_manage.upload_package, distro, comp, [self._filename], changes=None, forceUpdateMeta=True)
+            r = yield self.settings['workers'].submit(self.settings['manager'].upload_package, distro, comp,
+                                                      [self._filename], changes=None, forceUpdateMeta=True)
             self.set_status(201)
             self.write({'success': True, 'msg': "Package {0[Package]}_{0[Version]} was uploaded to {1}/{2}".format(r[0], distro, comp)})
 
@@ -383,7 +416,7 @@ class ApiPkgCopyHandler(JsonRequestHandler):
         source_pkg = req.get('source_pkg', False)
 
         try:
-            r = yield self.settings['workers'].submit(repo_manage.copy_package,
+            r = yield self.settings['workers'].submit(self.settings['manager'].copy_package,
                                                       distro=distro, pkg=pkg, ver=ver, arch=arch, src=src, dst=dst, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
@@ -402,7 +435,7 @@ class ApiPkgRemoveHandler(JsonRequestHandler):
         source_pkg = req.get('source_pkg', False)
 
         try:
-            r = yield self.settings['workers'].submit(repo_manage.remove_package, distro=distro,
+            r = yield self.settings['workers'].submit(self.settings['manager'].remove_package, distro=distro,
                                                       pkg=pkg, ver=ver, arch=arch, comp=comp, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
@@ -416,13 +449,13 @@ class ApiDistPushHandler(RequestHandler):
     def post(self, distro=None):
         changes_file = self.get_argument('file')
 
-        if distro in common.config['duploader_daemon']['distributions']:
+        if distro in self.settings['config']['duploader_daemon']['distributions']:
             self.write({'success': True, 'msg': 'Submitted package import job'})
         else:
             self.set_status(404)
             self.write({'success': False, 'msg': "Repo {} is not configured".format(distro)})
 
-        r = yield self.settings['workers'].submit(repo_manage.dist_push, distro=distro, changes=changes_file)
+        r = yield self.settings['workers'].submit(self.settings['manager'].dist_push, distro=distro, changes=changes_file)
         if r.ok:
             self.write({'success': True, 'msg': r.msg})
         elif r.status == 'NOT_FOUND':
@@ -484,8 +517,8 @@ class ApiPkgSearchHandler(RequestHandler):
         self.write(result)
 
 
-def make_app():
-    s = common.config['repo_daemon']
+def _make_app(config):
+    s = config['repo_daemon']
 
     # APT interface. Using full debian repository layout (see https://wiki.debian.org/RepositoryFormat)
     release_re = s['repo_base'] + r"/dists/(?P<distro>[-_.A-Za-z0-9@/]+)/Release(?P<gpg>\.gpg)?$"
@@ -503,6 +536,7 @@ def make_app():
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
     # Misc/unknown/obsolete
@@ -520,19 +554,25 @@ def make_app():
         url(api_pkg_remove_re, ApiPkgRemoveHandler),
         url(api_pkg_search_re, ApiPkgSearchHandler),
         url(api_distro_create_re, ApiDistroCreateHandler),
+        url(api_distro_remove_re, ApiDistroRemoveHandler),
         url(api_distro_reindex_re, ApiDistroReindexHandler),
         url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
         url(api_dist_push_re, ApiDistPushHandler),
         ])
 
 
-def start_daemon():
-    app = make_app()
+def start_daemon(config):
+
+    manager = repo_manage.RepoManager(config)
+
+    app = _make_app(manager.config)
     server = httpserver.HTTPServer(app)
-    server.bind(common.config['repo_daemon']['port'])
+    server.bind(manager.config['repo_daemon']['port'])
     server.start(0)
-    db = motor.MotorClient(**(common.config['db']))
+    db = motor.MotorClient(**(manager.config['db']))
     thread_pool = ThreadPoolExecutor(100)
+    app.settings['config'] = manager.config
+    app.settings['manager'] = manager
     app.settings['db'] = db
     app.settings['workers'] = thread_pool
     IOLoop.instance().start()

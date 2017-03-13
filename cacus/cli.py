@@ -22,11 +22,10 @@ class MyLogger(logging.getLoggerClass()):
 
 logging.setLoggerClass(MyLogger)
 
-import common
 import repo_manage
 import repo_daemon
 import duploader
-import distro_importer
+import distro_import
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 
@@ -59,25 +58,26 @@ def main():
     """
     args = parser.parse_args()
 
-    common.initialize(args.config)
-
     if args.duploader_daemon:
-        duploader.start_duploader()
+        duploader.start_daemon(args.config)
     elif args.repo_daemon:
-        repo_daemon.start_daemon()
+        repo_daemon.start_daemon(args.config)
     elif args.update_distro:
-        repo_manage.update_distro_metadata(args.update_distro, force=True)
+        manager = repo_manage.RepoManager(args.config)
+        manager.update_distro_metadata(args.update_distro, force=True)
     elif args.import_distro:
-        distro_importer.import_distro(args.import_distro[0], args.import_distro[1])
+        importer = distro_import.DistroImporter(args.config)
+        importer.import_distro(args.import_distro[0], args.import_distro[1])
     elif args.create_indexes:
-        common.create_cacus_indexes()
-        common.create_packages_indexes()
+        manager = repo_manage.RepoManager(args.config)
+        manager.create_cacus_indexes()
+        manager.create_packages_indexes()
     else:
         # default action is to start both duploader daemon and repo daemon
         from multiprocessing import Process
 
-        repod = Process(target=repo_daemon.start_daemon)
-        duploaderd = Process(target=duploader.start_duploader)
+        repod = Process(target=repo_daemon.start_daemon, args=(args.config,))
+        duploaderd = Process(target=duploader.start_daemon, args=(args.config,))
         repod.start()
         duploaderd.start()
         repod.join()

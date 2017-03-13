@@ -57,11 +57,19 @@ cacus --config /path/to/cacus.yaml --repo-daemon
 
 REST API documentation pending, some examples:
 ```shell
-# Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo
+# Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo/[unstable, testing, main]
 curl -X POST -H 'Content-Type: application/json' -vks \
   'localhost/debian/api/v1/distro/create/test-repo' \
   -d '{"gpg_check": false, "description": "Test distro", "incoming_timeout": 5, "strict": false,
-       "components": ["unstable", "testing", "main"] }'
+       "simple": false, "components": ["unstable", "testing", "main"] }'
+
+# Create "simple" distribution "test-repo", only for single .deb binary packages
+curl -X POST -H 'Content-Type: application/json' -vks \
+  'localhost/debian/api/v1/distro/create/test-repo' \
+  -d '{"description": "Test distro", "simple": true, "components": ["unstable", "testing", "main"] }'
+
+# Remove distribution "test-repo", including all snapshots and files uploaded to storage
+curl -X POST -vks 'localhost/debian/api/v1/distro/remove/test-repo'
 
 # Create snapshot "snap1" of distro "test-repo"
 curl -X POST  -vks 'localhost/debian/api/v1/distro/snapshot/test-repo/snap1'
