@@ -95,6 +95,8 @@ class Cacus(object):
         # GPG
         try:
             self.gpg = gnupg.GPG(homedir=self.config['gpg']['home'])
+            # gnupg is a little bit too talkative
+            logging.getLogger('gnupg').setLevel(logging.WARNING)
             keys = [x for x in self.gpg.list_keys(secret=True) if self.config['gpg']['sign_key'] in x['keyid']]
             if len(keys) < 1:
                 raise Exception("Cannot find secret key with ID {}".format(self.config['gpg']['sign_key']))
