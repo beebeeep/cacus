@@ -50,7 +50,7 @@ class ComplexDistroWatcher(pyinotify.ProcessEvent):
             self.log.debug("Uploading %s to %s/%s", file, self.distro, self.component)
             try:
                 common.with_retries(self.repo_manager.config['retry_count'], self.repo_manager.config['retry_delays'],
-                                    self.repo_manager.upload_package, self.distro, self.component, [file], changes=None, forceUpdateMeta=True)
+                                    self.repo_manager.upload_package, self.distro, self.component, [file], changes=None)
             except Exception as e:
                 self.log.error("Error while uploading DEB %s: %s", file, e)
             os.unlink(file)
@@ -168,10 +168,6 @@ class SimpleDistroWatcher(pyinotify.ProcessEvent):
         self.worker.daemon = True
         self.worker.start()
 
-    def __del__(self):
-        self.log.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!dying")
-        print "111111111111111111111111111"
-
     def _worker(self):
         count = 0
         while True:
@@ -251,6 +247,13 @@ class Duploader(repo_manage.RepoManager):
                         self.log.info("Removing notifier for '%s/%s'", distro, comp)
                         self.watchers[distro][comp].stop()
                         del(self.watchers[distro][comp])
+
+                for distro in set(self.watchers.keys()) - set(x['distro'] for x in distros):
+                    for comp in self.watchers[distro]:
+                        self.log.info("Removing notifier for '%s/%s'", distro, comp)
+                        self.watchers[distro][comp].stop()
+                    del(self.watchers[distro])
+
                 time.sleep(5)
         except KeyboardInterrupt:
             self._cleanup(self.watchers)

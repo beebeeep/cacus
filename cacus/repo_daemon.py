@@ -319,6 +319,19 @@ class ApiDistroCreateHandler(JsonRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
+class ApiDistroRemoveHandler(RequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        try:
+            msg = yield self.settings['workers'].submit(self.settings['manager'].remove_distro, distro)
+        except common.CacusError as e:
+            self.set_status(e.http_code)
+            self.write({'success': False, 'msg': e.message})
+            return
+        self.write({'success': True, 'msg': msg})
+
+
 @stream_request_body
 class ApiPkgUploadHandler(RequestHandler):
     """Upload single package to non-strict repo.
@@ -523,6 +536,7 @@ def _make_app(config):
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
     # Misc/unknown/obsolete
@@ -540,6 +554,7 @@ def _make_app(config):
         url(api_pkg_remove_re, ApiPkgRemoveHandler),
         url(api_pkg_search_re, ApiPkgSearchHandler),
         url(api_distro_create_re, ApiDistroCreateHandler),
+        url(api_distro_remove_re, ApiDistroRemoveHandler),
         url(api_distro_reindex_re, ApiDistroReindexHandler),
         url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
         url(api_dist_push_re, ApiDistPushHandler),

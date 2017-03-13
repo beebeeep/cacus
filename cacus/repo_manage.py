@@ -43,6 +43,59 @@ class RepoManager(common.Cacus):
 
         return old_distro
 
+    def remove_distro(self, distro):
+        with common.DistroLock(self.db, distro):
+            # Transactions? Bitch, please!
+            self.log.info("Removing distro '%s'", distro)
+            result = self.db.cacus.distros.delete_one({'distro': distro, 'snapshot': {'$exists': False}})
+            if result.deleted_count < 1:
+                self.log.warning("Distro %s not found", distro)
+                raise common.NotFound("Distro not found")
+
+            self.db.cacus.distros.delete_many({'snapshot.origin': distro})
+            for component in self.db.cacus.components.find({'distro': distro}, {'sources_file': 1}):
+                self._delete_unused_index(distro, sources=component['sources_file'])
+            self.db.cacus.components.delete_many({'distro': distro})
+
+            for repo in self.db.cacus.repos.find({'distro': distro}, {'packages_file': 1}):
+                self._delete_unused_index(distro, packages=repo['packages_file'])
+            self.db.cacus.repos.delete_many({'distro': distro})
+
+            for file in self.db.packages[distro].find({}, {'storage_key':1}):
+                self.storage.delete(file['storage_key'])
+            for file in self.db.sources[distro].find({}, {'storage_key':1}):
+                self.storage.delete(file['storage_key'])
+
+        return "Distro '{}' was successfully removed".format(distro)
+
+    def _index_used_by_snapshot(self, distro, sources=None, packages=None):
+        if sources:
+            collection = 'components'
+            field = 'sources_file'
+            value = sources
+        elif packages:
+            collection = 'repos'
+            field = 'packages_file'
+            value = packages
+        else:
+            return
+
+        for snapshot in self.db.cacus[collection].find({'snapshot.origin': distro}, {field: 1}):
+            if snapshot[field] == value:
+                return True
+        return False
+
+    def _delete_unused_index(self, distro, sources=None, packages=None):
+        if not self._index_used_by_snapshot(distro, sources=sources, packages=packages):
+            key = sources or packages
+            self.log.debug("Removing old index '%s'", key)
+            try:
+                self.storage.delete(key)
+            except common.NotFound:
+                self.log.warning("Cannot find old index '%s'", key)
+            except common.FatalError:
+                self.log.warning("Cannot delete old index '%s'", key)
+
     def _process_deb_file(self, file):
         with open(file) as f:
             hashes = self.get_hashes(file=f)
@@ -145,7 +198,7 @@ class RepoManager(common.Cacus):
 
         return release, release_gpg
 
-    def upload_package(self, distro, comp, files, changes, skipUpdateMeta=False, forceUpdateMeta=False):
+    def upload_package(self, distro, comp, files, changes, skipUpdateMeta=False):
         """ Uploads package from incoming dir to distro.
 
         Arguments:
@@ -154,7 +207,7 @@ class RepoManager(common.Cacus):
             changes - array of files belonging to package in scope:
                 .deb for binary packages (at least one required)
                 .dsc, .tar.[gx]z, .changes for sources (optional)
-            skipUpdateMeta, forceUpdateMeta - whether to update distro metadata
+            skipUpdateMeta - whether to update distro metadata
         """
 
         src_pkg = {}
@@ -220,7 +273,7 @@ class RepoManager(common.Cacus):
                     if not skipUpdateMeta:
                         if len(affected_arches) == 1 and 'all' in affected_arches:
                             affected_arches = None      # update all arches in case of "all" arch package
-                        self.update_distro_metadata(distro, [comp], affected_arches, force=forceUpdateMeta)
+                        self.update_distro_metadata(distro, [comp], affected_arches)
             except common.DistroLockTimeout as e:
                 self.log.error("Error updating distro: %s", e)
                 raise common.TemporaryError("Cannot lock distro: {0}".format(e))
@@ -228,7 +281,7 @@ class RepoManager(common.Cacus):
             self.log.info("No changes made on distro %s/%s, skipping metadata update", distro, comp)
         return debs
 
-    def _update_packages(self, distro, comp, arch, now, force=False):
+    def _update_packages(self, distro, comp, arch, now):
         """ Updates Packages index
         """
         md5 = hashlib.md5()
@@ -240,11 +293,6 @@ class RepoManager(common.Cacus):
         md5.update(packages.getvalue())
         sha1.update(packages.getvalue())
         sha256.update(packages.getvalue())
-
-        old_repo = self.db.cacus.repos.find_one({'distro': distro, 'component': comp, 'architecture': arch}, {'packages_file': 1})
-        if not force and old_repo and 'packages_file' in old_repo and md5.hexdigest() in old_repo['packages_file']:
-            self.log.warn("Packages file for %s/%s/%s not changed, skipping update", distro, comp, arch)
-            return
 
         # Packages may be used by distro snapshots, so we keep all versions under unique filename
         base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, sha256.hexdigest())
@@ -266,25 +314,11 @@ class RepoManager(common.Cacus):
                 return_document=ReturnDocument.BEFORE,
                 upsert=True)
 
-        # Do not delete old indices from storage as they may be used by some distro snapshot
-        if not force and old_repo and 'packages_file' in old_repo and old_repo['packages_file'] != storage_key:
-            old_key = old_repo['packages_file']
-            snapshots = self.db.cacus.repos.find(
-                {'snapshot.origin': distro, 'component': comp, 'architecture': arch},
-                {'packages_file': 1})
-            for snapshot in snapshots:
-                if snapshot['packages_file'] == old_key:
-                    break
-            else:
-                self.log.debug("Removing old Packages file %s", old_key)
-                try:
-                    self.storage.delete(old_key)
-                except common.NotFound:
-                    self.log.warning("Cannot find old Packages file")
-                except common.FatalError:
-                    self.log.warning("Cannot delete old Sources file")
+        # check whether previous index is not used by some snapshot and remove it from storage
+        if old_repo and 'packages_file' in old_repo and old_repo['packages_file'] != storage_key:
+            self._delete_unused_index(distro, packages=old_repo['packages_file'])
 
-    def _update_sources(self, distro, comp, now, force):
+    def _update_sources(self, distro, comp, now):
         """ Updates Sources index
         """
 
@@ -297,11 +331,7 @@ class RepoManager(common.Cacus):
         sha1.update(sources.getvalue())
         sha256.update(sources.getvalue())
 
-        old_sources = self.db.cacus.components.find_one({'distro': distro, 'component': comp}, {'sources_file': 1})
-        if not force and old_sources and md5.hexdigest() in old_sources.get('packages_file', ''):
-            self.log.warn("Sources file for %s/%s not changed, skipping update", distro, comp)
-            return
-        base_key = "{}/{}/source/Sources_{}".format(distro, comp, md5.hexdigest())
+        base_key = "{}/{}/source/Sources_{}".format(distro, comp, sha256.hexdigest())
         storage_key = self.storage.put(base_key, file=sources)
 
         old_component = self.db.cacus.components.find_one_and_update(
@@ -319,25 +349,11 @@ class RepoManager(common.Cacus):
                 return_document=ReturnDocument.BEFORE,
                 upsert=True)
 
-        # check whether previous indice is not used by some snapshot and remove it from storage
-        if not force and old_component and 'sources_file' in old_component and 'sources_file' != storage_key:
-            old_key = old_component['sources_file']
-            snapshots = self.db.cacus.components.find(
-                {'snapshot': {'origin': distro}, 'component': comp},
-                {'sources_file': 1})
-            for snapshot in snapshots:
-                if snapshot['sources_file'] == old_key:
-                    break
-            else:
-                self.log.debug("Removing old Sources file %s", old_key)
-                try:
-                    self.storage.delete(old_key)
-                except common.NotFound:
-                    self.log.warning("Cannot find old Sources file")
-                except common.FatalError:
-                    self.log.warning("Cannot delete old Sources file")
+        # check whether previous index is not used by some snapshot and remove it from storage
+        if old_component and 'sources_file' in old_component and old_component['sources_file'] != storage_key:
+            self._delete_unused_index(distro, sources=old_component['sources_file'])
 
-    def update_distro_metadata(self, distro, comps=None, arches=None, force=False):
+    def update_distro_metadata(self, distro, comps=None, arches=None):
         """ Updates distro's indices (Packages,Sources and Release file)
         Note that components should be already locked
         """
@@ -355,9 +371,9 @@ class RepoManager(common.Cacus):
 
         # for all components, updates Packages (for each architecture) and Sources index files
         for comp in comps:
-            self._update_sources(distro, comp, now, force)
+            self._update_sources(distro, comp, now)
             for arch in arches:
-                self._update_packages(distro, comp, arch, now, force)
+                self._update_packages(distro, comp, arch, now)
 
         # now create Release file
         release, release_gpg = self._create_release(distro, ts=now)

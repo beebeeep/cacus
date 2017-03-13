@@ -51,14 +51,17 @@ class DistroLockTimeout(CacusError):
 class Cacus(object):
     default_arches = ['all', 'amd64', 'i386']
 
-    def __init__(self, config_file, mongo=None):
-        if not config_file:
-            if os.path.isfile('/etc/cacus.yml'):
-                config_file = '/etc/cacus.yml'
-            else:
-                config_file = '/etc/cacus-default.yml'
-        with open(config_file) as cfg:
-            self.config = yaml.load(cfg)
+    def __init__(self, config_file=None, config=None, mongo=None):
+        if not config:
+            if not config_file:
+                if os.path.isfile('/etc/cacus.yml'):
+                    config_file = '/etc/cacus.yml'
+                else:
+                    config_file = '/etc/cacus-default.yml'
+            with open(config_file) as cfg:
+                self.config = yaml.load(cfg)
+        else:
+            self.config = config
 
         # logging
         handlers = []

@@ -68,6 +68,9 @@ curl -X POST -H 'Content-Type: application/json' -vks \
   'localhost/debian/api/v1/distro/create/test-repo' \
   -d '{"description": "Test distro", "simple": true, "components": ["unstable", "testing", "main"] }'
 
+# Remove distribution "test-repo", including all snapshots and files uploaded to storage
+curl -X POST -vks 'localhost/debian/api/v1/distro/remove/test-repo'
+
 # Create snapshot "snap1" of distro "test-repo"
 curl -X POST  -vks 'localhost/debian/api/v1/distro/snapshot/test-repo/snap1'
 
