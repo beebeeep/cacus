@@ -244,7 +244,7 @@ class ApiDistroReindexHandler(JsonRequestHandler):
     @gen.coroutine
     def post(self, distro):
         try:
-            yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro, force=True)
+            yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro)
         except common.NotFound as e:
             self.set_status(404)
             self.write({'success': False, 'msg': e.message})
@@ -384,7 +384,7 @@ class ApiPkgUploadHandler(RequestHandler):
                 raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
 
             r = yield self.settings['workers'].submit(self.settings['manager'].upload_package, distro, comp,
-                                                      [self._filename], changes=None, forceUpdateMeta=True)
+                                                      [self._filename], changes=None)
             self.set_status(201)
             self.write({'success': True, 'msg': "Package {0[Package]}_{0[Version]} was uploaded to {1}/{2}".format(r[0], distro, comp)})
 

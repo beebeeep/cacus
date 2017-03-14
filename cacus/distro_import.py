@@ -77,7 +77,7 @@ class DistroImporter(repo_manage.RepoManager):
                                                           {'$set': meta},
                                                           upsert=True)
 
-            repo_manage.update_distro_metadata(distro, components, arches, force=True)
+            repo_manage.update_distro_metadata(distro, components, arches)
         finally:
             try:
                 os.unlink(release_filename)

@@ -64,7 +64,7 @@ def main():
         repo_daemon.start_daemon(args.config)
     elif args.update_distro:
         manager = repo_manage.RepoManager(args.config)
-        manager.update_distro_metadata(args.update_distro, force=True)
+        manager.update_distro_metadata(args.update_distro)
     elif args.import_distro:
         importer = distro_import.DistroImporter(args.config)
         importer.import_distro(args.import_distro[0], args.import_distro[1])

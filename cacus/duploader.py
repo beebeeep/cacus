@@ -124,7 +124,7 @@ class ComplexDistroWatcher(pyinotify.ProcessEvent):
             try:
                 common.with_retries(self.repo_manager.config['retry_count'], self.repo_manager.config['retry_delays'],
                                     self.repo_manager.upload_package, self.distro, self.component,
-                                    incoming_files, changes=changes, forceUpdateMeta=True)
+                                    incoming_files, changes=changes)
             except Exception as e:
                 self.log.error("Error while uploading file: %s", e)
 
