@@ -380,11 +380,11 @@ class ApiPkgUploadHandler(RequestHandler):
             distro_settings = yield self.settings['db'].cacus.distros.find_one({'distro': distro}, {'strict': 1})
             if not distro_settings:
                 raise common.NotFound("Distribution '{}' was not found".format(distro))
-            if distro_settings['strict']:
+            if distro_settings['strict'] and not distro_settings['simple']:
                 raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
 
             r = yield self.settings['workers'].submit(self.settings['manager'].upload_package, distro, comp,
-                                                      [self._filename], changes=None, forceUpdateMeta=True)
+                                                      [self._filename], changes=None)
             self.set_status(201)
             self.write({'success': True, 'msg': "Package {0[Package]}_{0[Version]} was uploaded to {1}/{2}".format(r[0], distro, comp)})
 
