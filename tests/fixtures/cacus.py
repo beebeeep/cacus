@@ -38,7 +38,7 @@ def repo_manager(request, storage, mongo):
             'destinations': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
             'level': 'debug'
         },
-        'plugin_path': ['/opt/cacus/plugins', './plugins'],
+        'plugin_path': ['/opt/cacus/plugins', os.path.join(os.path.dirname(__file__), '../../plugins')],
         'repo_daemon': {'port': 8088, 'proxy_storage': True, 'repo_base': '/debian', 'storage_subdir': 'storage'},
         'retry_count': 3,
         'retry_delays': [2, 5, 10, 30, 60, 90],

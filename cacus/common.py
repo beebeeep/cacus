@@ -66,7 +66,7 @@ class Cacus(object):
         # logging
         handlers = []
         dst = self.config['logging']['destinations']
-        logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
+        logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)-4.4s] %(name)s: %(message)s")
         if dst['console']:
             h = logging.StreamHandler()
             h.setFormatter(logFormatter)

@@ -521,7 +521,7 @@ class RepoManager(common.Cacus):
                         arch = {'$exists': True}
                     # touch only one specified package
                     result = self.db.packages[distro].find_one_and_update(
-                        {'Package': pkg, 'Version': ver, 'Architecure': arch, 'components': src},
+                        {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': src},
                         {'$addToSet': {'components': dst}},
                         projection={'components': 1, 'Architecture': 1, 'component': 1},
                         upsert=False,
