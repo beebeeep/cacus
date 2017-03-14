@@ -10,7 +10,7 @@ import logging
 import email.utils
 
 from tornado.ioloop import IOLoop
-from tornado.web import RequestHandler, Application, url, MissingArgumentError, Finish, stream_request_body
+from tornado.web import RequestHandler, Application, url, Finish, stream_request_body
 from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
 
@@ -244,7 +244,7 @@ class ApiDistroReindexHandler(JsonRequestHandler):
     @gen.coroutine
     def post(self, distro):
         try:
-            yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro, force=True)
+            yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro)
         except common.NotFound as e:
             self.set_status(404)
             self.write({'success': False, 'msg': e.message})
@@ -296,7 +296,7 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         req = self._get_json_request()
         comps = req['components']
         description = req['description']
-        simple=req['simple']
+        simple = req['simple']
         if not simple:
             gpg_check = req['gpg_check']
             strict = req['strict']
