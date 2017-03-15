@@ -296,7 +296,7 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         req = self._get_json_request()
         comps = req['components']
         description = req['description']
-        simple=req['simple']
+        simple = req['simple']
         if not simple:
             gpg_check = req['gpg_check']
             strict = req['strict']

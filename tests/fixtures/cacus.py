@@ -4,11 +4,17 @@ import importlib
 import os
 import shutil
 import tempfile
+import gnupg
 
 import pytest
 from pytest_mongo import factories
 
-mongo_proc = factories.mongo_proc(port=None, logsdir='/tmp')
+for f in ['/usr/bin/mongod', '/usr/local/bin/mongod']:
+    if os.path.isfile(f):
+        mongod = f
+        break
+
+mongo_proc = factories.mongo_proc(port=None, logsdir='/tmp', executable=mongod)
 mongo = factories.mongodb('mongo_proc')
 
 
@@ -30,9 +36,13 @@ def storage():
 
 @pytest.fixture
 def repo_manager(request, storage, mongo):
+    # take first available secret key from current user
+    os.environ['PATH'] += ':/usr/local/bin'
+    gpg = gnupg.GPG(homedir='~/.gnupg')
+    keyid = gpg.list_keys(True)[0]['keyid']
     config = {
         'duploader_daemon': {'incoming_root': os.path.join(storage, 'incoming')},
-        'gpg': {'home': '/home/midanil/.gnupg', 'sign_key': '7A69013C'},
+        'gpg': {'home': '~/.gnupg', 'sign_key': keyid},
         'lock_cleanup_timeout': 3600,
         'logging': {
             'destinations': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},

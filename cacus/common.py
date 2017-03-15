@@ -52,6 +52,7 @@ class Cacus(object):
     default_arches = ['all', 'amd64', 'i386']
 
     def __init__(self, config_file=None, config=None, mongo=None):
+        os.environ['PATH'] += ':/usr/local/bin'
         if not config:
             if not config_file:
                 if os.path.isfile('/etc/cacus.yml'):
