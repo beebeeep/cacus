@@ -23,6 +23,7 @@ class RepoManager(common.Cacus):
                 'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
             return_document=ReturnDocument.BEFORE,
             upsert=True)
+        self.log.info("%s distro '%s', simple: %s, components: %s", "Updated" if old_distro else "Created", distro, simple, ', '.join(components))
 
         old_components = [x['component'] for x in self.db.cacus.components.find({'distro': distro}, {'component': 1})]
 
@@ -278,7 +279,7 @@ class RepoManager(common.Cacus):
                 self.log.error("Error updating distro: %s", e)
                 raise common.TemporaryError("Cannot lock distro: {0}".format(e))
         else:
-            self.log.info("No changes made on distro %s/%s, skipping metadata update", distro, comp)
+            self.log.info("No changes made in '%s/%s', skipping metadata update", distro, comp)
         return debs
 
     def _update_packages(self, distro, comp, arch, now):
@@ -367,7 +368,7 @@ class RepoManager(common.Cacus):
         if not comps or not arches:
             raise common.NotFound("Distro {} is not found or empty".format(distro))
 
-        self.log.info("Updating metadata for distro %s, components: %s, arches: %s", distro, ', '.join(comps), ', '.join(arches))
+        self.log.info("Updating metadata for distro '%s', components: %s, arches: %s", distro, ', '.join(comps), ', '.join(arches))
 
         # for all components, updates Packages (for each architecture) and Sources index files
         for comp in comps:
@@ -437,6 +438,8 @@ class RepoManager(common.Cacus):
                     string = "SHA256: {0}\n".format(hexlify(v))
                 elif k == 'sha512':
                     string = "SHA512: {0}\n".format(hexlify(v))
+                elif not v:
+                    continue
                 else:
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)
@@ -553,7 +556,7 @@ class RepoManager(common.Cacus):
         NB it's internal function - for user all component management is performed via distro settings
         """
 
-        self.log.info("Deleting component %s from distro %s", comp, distro)
+        self.log.info("Deleting component '%s' from distro '%s'", comp, distro)
 
         self.db.sources['distro'].update_many(
             {'components': comp},

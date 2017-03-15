@@ -34,6 +34,17 @@ def test_create_repo(repo_manager):
     assert d['simple'] == True
     assert 'comp1' in c
     assert 'comp2' in c
+    repo_manager.create_distro('testdistro', 'description',
+                               components=['comp1'],
+                               gpg_check=True, strict=True, simple=False,
+                               incoming_wait_timeout=10)
+    d = repo_manager.db.cacus.distros.find_one({'distro': 'testdistro'})
+    c = [x['component'] for x in repo_manager.db.cacus.components.find(
+        {'distro': 'testdistro'})]
+    assert d['simple'] == False
+    assert d['gpg_check'] == True
+    assert 'comp1' in c
+    assert 'comp2' not in c
 
 
 def test_upload_package(distro, repo_manager, deb_pkg):
