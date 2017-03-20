@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import os
-import time
-import atexit
-import pyinotify
+import sys
+import signal
 import threading
+import time
 import Queue
+
+import pyinotify
 from debian import deb822
 
 import common
@@ -193,17 +195,22 @@ class SimpleDistroWatcher(pyinotify.ProcessEvent):
 
 class Duploader(repo_manage.RepoManager):
 
-    def _cleanup(self, watchers):
-        for distro, distro_watchers in watchers.items():
+    def _sighandler(self, signal, frame):
+        self.log.info("Got signal %s, performing cleanup before exit", signal)
+        self.stop()
+        sys.exit(0)
+
+    def stop(self):
+        for distro, distro_watchers in self.watchers.items():
             for comp, notifier in distro_watchers.items():
                 self.log.info("Removing notifier for '%s/%s'", distro, comp)
                 notifier.stop()
                 del distro_watchers[comp]
-            del watchers[distro]
+            del self.watchers[distro]
 
     def run(self):
         self.watchers = {}
-        atexit.register(self._cleanup, self.watchers)
+        signal.signal(signal.SIGTERM, self._sighandler)
         incoming_root = self.config['duploader_daemon']['incoming_root']
         if not os.path.isdir(incoming_root):
             os.mkdir(incoming_root)
@@ -255,7 +262,7 @@ class Duploader(repo_manage.RepoManager):
 
                 time.sleep(5)
         except KeyboardInterrupt:
-            self._cleanup(self.watchers)
+            self.stop()
 
 
 def start_daemon(config):

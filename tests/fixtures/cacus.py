@@ -2,9 +2,12 @@
 
 import importlib
 import os
+import signal
 import shutil
 import tempfile
 import gnupg
+from multiprocessing import Process
+from debian import deb822
 
 import pytest
 from pytest_mongo import factories
@@ -35,7 +38,7 @@ def storage():
 
 
 @pytest.fixture
-def repo_manager(request, storage, mongo):
+def cacus_config(request, storage):
     # take first available secret key from current user
     os.environ['PATH'] += ':/usr/local/bin'
     gpg = gnupg.GPG(homedir='~/.gnupg')
@@ -54,6 +57,31 @@ def repo_manager(request, storage, mongo):
         'retry_delays': [2, 5, 10, 30, 60, 90],
         'storage': {'path': os.path.join(storage, 'pool'), 'type': 'FileStorage'}
     }
+    return config
+
+
+@pytest.fixture
+def repo_manager(request, cacus_config, mongo):
 
     repo_manage = importlib.import_module('cacus.repo_manage')
-    return repo_manage.RepoManager(config=config, mongo=mongo)
+    return repo_manage.RepoManager(config=cacus_config, mongo=mongo)
+
+
+@pytest.yield_fixture
+def duploader(request, cacus_config, mongo):
+    module = importlib.import_module('cacus.duploader')
+    duploader = module.Duploader(config=cacus_config, mongo=mongo)
+    duploader_process = Process(target=duploader.run)
+    duploader_process.start()
+    yield duploader
+    os.kill(duploader_process.pid, signal.SIGTERM)
+
+
+def package_is_in_repo(manager, package, distro, component):
+    packages = manager.db.cacus.repos.find_one({
+        'distro': distro, 'component': component, 'architecture': package['Architecture']})['packages_file']
+    with open(os.path.join(manager.config['storage']['path'], packages)) as f:
+        for pkg in deb822.Packages.iter_paragraphs(f):
+            if pkg['Package'] == package['Package'] and pkg['Version'] == package['Version']:
+                return True
+    return False

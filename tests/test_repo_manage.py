@@ -3,18 +3,6 @@
 from fixtures.cacus import *
 from fixtures.packages import *
 
-from debian import deb822
-
-
-def package_is_in_repo(manager, package, distro, component):
-    packages = manager.db.cacus.repos.find_one({
-        'distro': distro, 'component': component, 'architecture': package['Architecture']})['packages_file']
-    with open(os.path.join(manager.config['storage']['path'], packages)) as f:
-        for pkg in deb822.Packages.iter_paragraphs(f):
-            if pkg['Package'] == package['Package'] and pkg['Version'] == package['Version']:
-                return True
-    return False
-
 
 def test_snapshot_name(repo_manager):
     assert repo_manager._get_snapshot_name('distro', 'name') == 'distro@name'
@@ -49,7 +37,7 @@ def test_create_repo(repo_manager):
 
 def test_upload_package(distro, repo_manager, deb_pkg):
     comp = distro['components'][0]
-    debs = repo_manager.upload_package(distro['distro'], comp, [deb_pkg], None)
+    debs = repo_manager.upload_package(distro['distro'], comp, [deb_pkg['file']], None)
     for deb in debs:
         d = repo_manager.db.packages[distro['distro']].find_one({'Package': deb['Package'], 'Version': deb['Version']})
         assert d is not None
@@ -60,7 +48,7 @@ def test_upload_package(distro, repo_manager, deb_pkg):
 def test_copy_remove_package(distro, repo_manager, deb_pkg):
     src = distro['components'][0]
     dst = distro['components'][1]
-    deb = repo_manager.upload_package(distro['distro'], src, [deb_pkg], None)[0]
+    deb = repo_manager.upload_package(distro['distro'], src, [deb_pkg['file']], None)[0]
     repo_manager.copy_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], src, dst)
     assert package_is_in_repo(repo_manager, deb, distro['distro'], dst)
     repo_manager.remove_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], dst)

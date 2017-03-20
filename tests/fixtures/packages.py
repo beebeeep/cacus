@@ -33,6 +33,7 @@ def deb_pkg():
 
     assert subprocess.call(["dpkg-deb", "--build", "testpkg"]) == 0
 
-    yield os.path.join(base, "testpkg.deb")
+    yield {'control': control, 'file': os.path.join(base, "testpkg.deb")}
+
     os.chdir('/')
     shutil.rmtree(base)
