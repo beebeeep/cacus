@@ -18,6 +18,13 @@ class FileStorage(IStoragePlugin):
         if not os.path.isdir(self.root):
             os.makedirs(self.root)
 
+    @staticmethod
+    def _hashdir(path, sha256):
+        """ Append two levels of directory hierarchy based on provided hash """
+        digest = sha256.hexdigest()
+        components = path.split(os.path.sep)
+        return os.path.join(os.path.join(*components[0:-1]), digest[0], digest[1:3], components[-1])
+
     def delete(self, key):
         try:
             fname = os.path.join(self.root, key)
@@ -29,9 +36,8 @@ class FileStorage(IStoragePlugin):
             log.error("Cannot delete file %s: %s", key, e)
             raise common.FatalError(e)
 
-    def put(self, key, filename=None, file=None):
-        # TODO: hashdir mb?
-        storage_key = key
+    def put(self, key, filename=None, file=None, sha256=None):
+        storage_key = self._hashdir(key, sha256)
         storage_path = os.path.join(self.root, storage_key)
         storage_dir = os.path.dirname(storage_path)
         if not os.path.isdir(storage_dir):

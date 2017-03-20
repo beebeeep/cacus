@@ -103,10 +103,10 @@ class RepoManager(common.Cacus):
 
         doc = {
             'size': os.stat(file)[stat.ST_SIZE],
-            'sha512': binary.Binary(hashes['sha512']),
-            'sha256': binary.Binary(hashes['sha256']),
-            'sha1': binary.Binary(hashes['sha1']),
-            'md5': binary.Binary(hashes['md5'])
+            'sha512': binary.Binary(hashes['sha512'].digest()),
+            'sha256': binary.Binary(hashes['sha256'].digest()),
+            'sha1': binary.Binary(hashes['sha1'].digest()),
+            'md5': binary.Binary(hashes['md5'].digest())
             }
 
         try:
@@ -116,7 +116,7 @@ class RepoManager(common.Cacus):
             raise common.FatalError("Cannot load debfile {0}: {1}".format(file, e))
         doc.update(deb.debcontrol())
 
-        return doc
+        return doc, hashes
 
     def _process_source_file(self, file):
         with open(file) as f:
@@ -128,17 +128,17 @@ class RepoManager(common.Cacus):
         doc = {
                 'name': filename,
                 'size': os.stat(file)[stat.ST_SIZE],
-                'sha512': binary.Binary(hashes['sha512']),
-                'sha256': binary.Binary(hashes['sha256']),
-                'sha1': binary.Binary(hashes['sha1']),
-                'md5': binary.Binary(hashes['md5'])
+                'sha512': binary.Binary(hashes['sha512'].digest()),
+                'sha256': binary.Binary(hashes['sha256'].digest()),
+                'sha1': binary.Binary(hashes['sha1'].digest()),
+                'md5': binary.Binary(hashes['md5'].digest())
                 }
         if file.endswith('.dsc'):
             with open(file) as f:
                 dsc = deb822.Dsc(f)
                 dsc = dict((k, v) for k, v in dsc.items() if not k.startswith('Checksums-') and k != 'Files')
 
-        return doc, dsc
+        return doc, dsc, hashes
 
     def _create_release(self, distro, settings=None, ts=None):
 
@@ -216,11 +216,11 @@ class RepoManager(common.Cacus):
         affected_arches = set()
         for file in files:
             if file.endswith('.deb') or file.endswith('.udeb'):
-                deb = self._process_deb_file(file)
+                deb, hashes = self._process_deb_file(file)
                 ext = 'deb' if file.endswith('.deb') else 'udeb'
                 base_key = "{}/pool/{}_{}_{}.{}".format(distro, deb['Package'], deb['Version'], deb['Architecture'], ext)
                 self.log.info("Uploading %s as %s to distro '%s' component '%s'", os.path.basename(file), base_key, distro, comp)
-                storage_key = self.storage.put(base_key, filename=file)
+                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'])
 
                 # All debian packages are going to "packages" db, prepare documents to insert
                 debs.append({
@@ -232,15 +232,14 @@ class RepoManager(common.Cacus):
                 })
 
             else:
-                filename = os.path.basename(file)
-                base_key = "{0}/pool/{1}".format(distro, filename)
-                self.log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
-                storage_key = self.storage.put(base_key, filename=file)
-
                 # All other files are stored in "sources" db, fill the "files" array and prepare source document
                 if 'files' not in src_pkg:
                     src_pkg['files'] = []
-                source, dsc = self._process_source_file(file)
+                source, dsc, hashes = self._process_source_file(file)
+                filename = os.path.basename(file)
+                base_key = "{0}/pool/{1}".format(distro, filename)
+                self.log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
+                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'])
                 source['storage_key'] = storage_key
                 src_pkg['files'].append(source)
                 if dsc:
@@ -297,7 +296,7 @@ class RepoManager(common.Cacus):
 
         # Packages may be used by distro snapshots, so we keep all versions under unique filename
         base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, sha256.hexdigest())
-        storage_key = self.storage.put(base_key, file=packages)
+        storage_key = self.storage.put(base_key, file=packages, sha256=sha256)
 
         old_repo = self.db.cacus.repos.find_one_and_update(
                 {'distro': distro, 'component': comp, 'architecture': arch},
@@ -333,7 +332,7 @@ class RepoManager(common.Cacus):
         sha256.update(sources.getvalue())
 
         base_key = "{}/{}/source/Sources_{}".format(distro, comp, sha256.hexdigest())
-        storage_key = self.storage.put(base_key, file=sources)
+        storage_key = self.storage.put(base_key, file=sources, sha256=sha256)
 
         old_component = self.db.cacus.components.find_one_and_update(
                 {'distro': distro, 'component': comp},

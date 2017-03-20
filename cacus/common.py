@@ -170,6 +170,8 @@ class Cacus(object):
 
     @staticmethod
     def get_hashes(file=None, filename=None):
+        # XXX: This is pretty fat function, but I have no idea how to optimize it - my tests shows that
+        # it's almost as fast as "openssl [md5,sha1,sha256,sha256]", despite it's pretty straightforward approach
         if filename:
             file = open(filename)
 
@@ -192,7 +194,7 @@ class Cacus(object):
         if filename:
             file.close()
 
-        return {'md5': md5.digest(), 'sha1': sha1.digest(), 'sha256': sha256.digest(), 'sha512': sha512.digest()}
+        return {'md5': md5, 'sha1': sha1, 'sha256': sha256, 'sha512': sha512}
 
     def download_file(self, url, filename=None, md5=None, sha1=None, sha256=None):
         log = logging.getLogger("cacus.downloader")

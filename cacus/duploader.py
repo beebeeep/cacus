@@ -7,7 +7,6 @@ import atexit
 import pyinotify
 import threading
 import Queue
-from binascii import hexlify
 from debian import deb822
 
 import common
@@ -60,15 +59,15 @@ class ComplexDistroWatcher(pyinotify.ProcessEvent):
     def _verifyChangesFile(self, changes, hashes):
         for file in changes['Files']:
             name = file['name']
-            if file['md5sum'] != hexlify(hashes[name]['md5']):
+            if file['md5sum'] != hashes[name]['md5'].hexdigest():
                 raise Exception(name)
         for file in changes['Checksums-Sha1']:
             name = file['name']
-            if file['sha1'] != hexlify(hashes[name]['sha1']):
+            if file['sha1'] != hashes[name]['sha1'].hexdigest():
                 raise Exception(name)
         for file in changes['Checksums-Sha256']:
             name = file['name']
-            if file['sha256'] != hexlify(hashes[name]['sha256']):
+            if file['sha256'] != hashes[name]['sha256'].hexdigest():
                 raise Exception(name)
 
     def _processChangesFile(self, event):
