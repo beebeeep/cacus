@@ -87,6 +87,7 @@ class Cacus(object):
             'debug': logging.DEBUG, 'info': logging.INFO, 'warning': logging.WARNING,
             'error': logging.ERROR, 'critical': logging.CRITICAL
         }
+        print self.config
         self._rootLogger.setLevel(levels[self.config['logging']['level']])
         for handler in handlers:
             self._rootLogger.addHandler(handler)

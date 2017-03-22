@@ -563,7 +563,7 @@ def _make_app(config):
 
 def start_daemon(config):
 
-    manager = repo_manage.RepoManager(config)
+    manager = repo_manage.RepoManager(config_file=config)
 
     app = _make_app(manager.config)
     server = httpserver.HTTPServer(app)

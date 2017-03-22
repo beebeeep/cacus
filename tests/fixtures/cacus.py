@@ -29,8 +29,15 @@ def distro(repo_manager):
                                incoming_wait_timeout=10)
     return {'distro': 'testdistro', 'components': ['comp1', 'comp2']}
 
+@pytest.fixture
+def full_distro(repo_manager):
+    repo_manager.create_distro('testdistro_full', 'description',
+                               components=['comp1', 'comp2'],
+                               gpg_check=False, strict=True, simple=False,
+                               incoming_wait_timeout=10)
+    return {'distro': 'testdistro_full', 'components': ['comp1', 'comp2']}
 
-@pytest.yield_fixture
+@pytest.yield_fixture(scope='session')
 def storage():
     dir = tempfile.mkdtemp('_cacustest')
     yield dir
@@ -70,7 +77,7 @@ def repo_manager(request, cacus_config, mongo):
 @pytest.yield_fixture
 def duploader(request, cacus_config, mongo):
     module = importlib.import_module('cacus.duploader')
-    duploader = module.Duploader(config=cacus_config, mongo=mongo)
+    duploader = module.Duploader(config=cacus_config, mongo=mongo, watcher_update_timeout=0.1)
     duploader_process = Process(target=duploader.run)
     duploader_process.start()
     yield duploader
@@ -83,5 +90,18 @@ def package_is_in_repo(manager, package, distro, component):
     with open(os.path.join(manager.config['storage']['path'], packages)) as f:
         for pkg in deb822.Packages.iter_paragraphs(f):
             if pkg['Package'] == package['Package'] and pkg['Version'] == package['Version']:
-                return True
+                meta = manager.db.packages[distro].find_one({'Package': pkg['Package'], 'Version': pkg['Version']})
+                if os.path.isfile(os.path.join(manager.config['storage']['path'], meta['storage_key'])):
+                    return True
+    return False
+
+def source_is_in_repo(manager, package, distro, component):
+    sources = manager.db.cacus.components.find_one({
+        'distro': distro, 'component': component})['sources_file']
+    with open(os.path.join(manager.config['storage']['path'], sources)) as f:
+        for pkg in deb822.Sources.iter_paragraphs(f):
+            if pkg['Source'] == package['Package'] and pkg['Version'] == package['Version']:
+                for file in (x['name'] for x in pkg['Files']):
+                    if os.path.isfile(os.path.join(manager.config['storage']['path'], file)):
+                        return True
     return False

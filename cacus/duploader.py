@@ -195,6 +195,10 @@ class SimpleDistroWatcher(pyinotify.ProcessEvent):
 
 class Duploader(repo_manage.RepoManager):
 
+    def __init__(self, watcher_update_timeout=5, *args, **kwargs):
+        self.watcher_update_timeout = watcher_update_timeout
+        super(Duploader, self).__init__(*args, **kwargs)
+
     def _sighandler(self, signal, frame):
         self.log.info("Got signal %s, performing cleanup before exit", signal)
         self.stop()
@@ -212,6 +216,7 @@ class Duploader(repo_manage.RepoManager):
         self.watchers = {}
         signal.signal(signal.SIGTERM, self._sighandler)
         incoming_root = self.config['duploader_daemon']['incoming_root']
+        self.log.info("Starting duploader daemon in %s", incoming_root)
         if not os.path.isdir(incoming_root):
             os.mkdir(incoming_root)
 
@@ -260,11 +265,12 @@ class Duploader(repo_manage.RepoManager):
                         self.watchers[distro][comp].stop()
                     del(self.watchers[distro])
 
-                time.sleep(5)
+                # TODO: don't like that sleep, perhaps tailable cursor? It's only for capped collections though.
+                time.sleep(self.watcher_update_timeout)
         except KeyboardInterrupt:
             self.stop()
 
 
 def start_daemon(config):
-    duploader = Duploader(config)
+    duploader = Duploader(config_file=config)
     duploader.run()

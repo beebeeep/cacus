@@ -2,6 +2,12 @@
 *~
 .*.sw?
 
+tests/fixtures/contrib/*.build
+tests/fixtures/contrib/*.changes
+tests/fixtures/contrib/*.dsc
+tests/fixtures/contrib/*.gz
+tests/fixtures/contrib/*.deb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

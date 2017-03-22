@@ -63,13 +63,13 @@ def main():
     elif args.repo_daemon:
         repo_daemon.start_daemon(args.config)
     elif args.update_distro:
-        manager = repo_manage.RepoManager(args.config)
+        manager = repo_manage.RepoManager(config_file=args.config)
         manager.update_distro_metadata(args.update_distro)
     elif args.import_distro:
-        importer = distro_import.DistroImporter(args.config)
+        importer = distro_import.DistroImporter(config_file=args.config)
         importer.import_distro(args.import_distro[0], args.import_distro[1])
     elif args.create_indexes:
-        manager = repo_manage.RepoManager(args.config)
+        manager = repo_manage.RepoManager(config_file=args.config)
         manager.create_cacus_indexes()
         manager.create_packages_indexes()
     else:

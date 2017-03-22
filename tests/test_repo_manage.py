@@ -37,7 +37,7 @@ def test_create_repo(repo_manager):
 
 def test_upload_package(distro, repo_manager, deb_pkg):
     comp = distro['components'][0]
-    debs = repo_manager.upload_package(distro['distro'], comp, [deb_pkg['file']], None)
+    debs = repo_manager.upload_package(distro['distro'], comp, [deb_pkg['debfile']], None)
     for deb in debs:
         d = repo_manager.db.packages[distro['distro']].find_one({'Package': deb['Package'], 'Version': deb['Version']})
         assert d is not None
@@ -48,7 +48,7 @@ def test_upload_package(distro, repo_manager, deb_pkg):
 def test_copy_remove_package(distro, repo_manager, deb_pkg):
     src = distro['components'][0]
     dst = distro['components'][1]
-    deb = repo_manager.upload_package(distro['distro'], src, [deb_pkg['file']], None)[0]
+    deb = repo_manager.upload_package(distro['distro'], src, [deb_pkg['debfile']], None)[0]
     repo_manager.copy_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], src, dst)
     assert package_is_in_repo(repo_manager, deb, distro['distro'], dst)
     repo_manager.remove_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], dst)
