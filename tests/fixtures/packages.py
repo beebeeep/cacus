@@ -24,4 +24,6 @@ def deb_pkg():
     yield {'control': control, 'debfile': deb, 'files': files}
 
     subprocess.call(['debclean'])
-    map(os.unlink, files)
+    for file in files:
+        if os.path.isfile(file):
+            os.unlink(file)
