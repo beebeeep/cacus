@@ -62,7 +62,8 @@ class FileStorage(IStoragePlugin):
                 old_pos = file.tell()
                 file.seek(0)
                 with open(storage_path, 'wb') as f:
-                    for chunk in iter(lambda: file.read(4096), b''):
+                    # 128 KiB is default readahead for big files
+                    for chunk in iter(lambda: file.read(128*1024), b''):
                         f.write(chunk)
                 file.seek(old_pos)
             except Exception as e:

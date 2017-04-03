@@ -162,6 +162,7 @@ class Cacus(object):
                 [('components', pymongo.DESCENDING),
                  ('Architecture', pymongo.DESCENDING)])
             self.db.packages[distro].create_index('source')
+            self.db.packages[distro].create_index([('meta.Description', pymongo.TEXT)])
 
             self.db.sources[distro].create_index(
                 [('Package', pymongo.DESCENDING),
@@ -184,7 +185,8 @@ class Cacus(object):
         fpos = file.tell()
         file.seek(0)
 
-        for chunk in iter(lambda: file.read(4096), b''):
+        # 128 KiB is default readahead for big files
+        for chunk in iter(lambda: file.read(1024*128), b''):
             md5.update(chunk)
             sha1.update(chunk)
             sha256.update(chunk)
