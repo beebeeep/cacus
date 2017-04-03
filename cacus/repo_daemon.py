@@ -466,24 +466,41 @@ class ApiDistPushHandler(RequestHandler):
             self.write({'success': False, 'msg': r.msg})
 
 
-class ApiPkgSearchHandler(RequestHandler):
+class ApiPkgSearchHandler(JsonRequestHandler):
 
     @gen.coroutine
     def get(self, distro=None):
-        db = self.settings['db']
-        pkg = self.get_argument('pkg', '')
-        ver = self.get_argument('ver', '')
-        comp = self.get_argument('comp', '')
-        descr = self.get_argument('descr', '')
-        lang = self.get_argument('lang', '')
+        pkg = self.get_argument('pkg', None)
+        ver = self.get_argument('ver', None)
+        comp = self.get_argument('comp', None)
+        descr = self.get_argument('descr', None)
+        lang = self.get_argument('lang', None)
+        yield self._search(distro, pkg, ver, comp, descr, lang)
 
+    @gen.coroutine
+    def post(self, distro=None):
+        req = self._get_json_request()
+        pkg = req.get('pkg', None)
+        ver = req.get('ver', None)
+        comp = req.get('comp', None)
+        descr = req.get('descr', None)
+        lang = req.get('lang', None)
+        yield self._search(distro, pkg, ver, comp, descr, lang)
+
+    @gen.coroutine
+    def _search(self, distro=None, pkg=None, ver=None, comp=None, descr=None, lang=None):
+        db = self.settings['db']
         selector = {}
+
+        if not pkg and not descr:
+            self.write({'success': False, 'msg': "Specify either 'pkg' or 'descr' search term"})
+            return
         if pkg:
-            selector['Source'] = {'$regex': pkg}
+            selector['Package'] = {'$regex': pkg}
         if ver:
             selector['Version'] = {'$regex': ver}
         if comp:
-            selector['component'] = comp
+            selector['components'] = comp
         if descr:
             if lang:
                 selector['$text'] = {'$search': descr, '$language': lang}
@@ -491,23 +508,24 @@ class ApiPkgSearchHandler(RequestHandler):
                 selector['$text'] = {'$search': descr}
         projection = {
             '_id': 0,
-            'Source': 1,
-            'component': 1,
+            'Package': 1,
             'Version': 1,
-            'debs.maintainer': 1,
-            'debs.Architecture': 1,
-            'debs.Package': 1,
-            'debs.Description': 1
+            'Architecture': 1,
+            'meta.Maintainer': 1,
+            'meta.Description': 1,
+            'components': 1
         }
 
         result = {}
         pkgs = []
-        cursor = db.repos[distro].find(selector, projection)
+        cursor = db.packages[distro].find(selector, projection)
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             if pkg:
                 p = dict((k.lower(), v) for k, v in pkg.iteritems())
-                p['debs'] = [dict((k.lower(), v) for k, v in deb.iteritems()) for deb in pkg['debs']]
+                for k, v in pkg['meta'].iteritems():
+                    p[k.lower()] = v
+                del p['meta']
                 pkgs.append(p)
         if not pkgs:
             self.set_status(404)
