@@ -297,6 +297,8 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         comps = req['components']
         description = req['description']
         simple = req['simple']
+        retention = req.get('retention', 0)
+        gpg_key = req.get('gpg_key', None)
         if not simple:
             gpg_check = req['gpg_check']
             strict = req['strict']
@@ -307,7 +309,7 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         try:
             old = yield self.settings['workers'].submit(self.settings['manager'].create_distro, distro=distro, description=description,
                                                         components=comps, gpg_check=gpg_check, strict=strict, simple=simple,
-                                                        incoming_wait_timeout=incoming_wait_timeout)
+                                                        retention=retention, incoming_wait_timeout=incoming_wait_timeout, gpg_key=gpg_key)
             if not old:
                 self.set_status(201)
                 self.write({'success': True, 'msg': 'repo created'})

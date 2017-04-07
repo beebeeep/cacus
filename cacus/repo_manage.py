@@ -15,12 +15,16 @@ import common
 
 
 class RepoManager(common.Cacus):
-    def create_distro(self, distro, description, components, gpg_check, strict, simple, incoming_wait_timeout):
+
+    def create_distro(self, distro, description, components,  simple, strict=None,
+                      gpg_check=None, incoming_wait_timeout=None, retention=None, gpg_key=None):
+        if gpg_key and not self._check_key(gpg_key):
+            raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
             {'$set': {
-                'gpg_check': gpg_check, 'strict': strict, 'simple': simple,
-                'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+                'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention,
+                'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key}},
             return_document=ReturnDocument.BEFORE,
             upsert=True)
         self.log.info("%s distro '%s', simple: %s, components: %s", "Updated" if old_distro else "Created", distro, simple, ', '.join(components))
@@ -62,9 +66,9 @@ class RepoManager(common.Cacus):
                 self._delete_unused_index(distro, packages=repo['packages_file'])
             self.db.cacus.repos.delete_many({'distro': distro})
 
-            for file in self.db.packages[distro].find({}, {'storage_key':1}):
+            for file in self.db.packages[distro].find({}, {'storage_key': 1}):
                 self.storage.delete(file['storage_key'])
-            for file in self.db.sources[distro].find({}, {'storage_key':1}):
+            for file in self.db.sources[distro].find({}, {'storage_key': 1}):
                 self.storage.delete(file['storage_key'])
 
         return "Distro '{}' was successfully removed".format(distro)
@@ -96,6 +100,42 @@ class RepoManager(common.Cacus):
                 self.log.warning("Cannot find old index '%s'", key)
             except common.FatalError:
                 self.log.warning("Cannot delete old index '%s'", key)
+
+    def _apply_retention_policy(self, distro, comp, sources, debs, skipUpdateMeta=False):
+        """ Removes old packages according to distro's retention policy
+        Note that package will be removed only from indices, and will stay in DB & storage,
+        since it's pretty tricky to determine whether it's still used in some snapshot
+        TODO: full cleanup """
+        settings = self.db.cacus.distros.find_one({'distro': distro})
+        if not settings['retention']:
+            self.log.info("No retention policy defined for distro '{}'".format(distro))
+            return
+        else:
+            keep = settings['retention']
+        sources_to_delete = []
+        debs_to_delete = []
+        for source in (x for x in sources if x):
+            all_sources = sorted(self.db.sources[distro].find({'Package': source['Package'], 'components': comp},
+                                                              {'Package': 1, 'Version': 1, '_id': 1, 'components': 1}),
+                                 key=lambda x: common.DebVersion(x['Version']))
+
+            if len(all_sources) > keep:
+                sources_to_delete.extend(all_sources[0:-keep])
+
+        for deb in (x for x in debs if x):
+            all_debs = sorted(self.db.packages[distro].find({'Package': deb['Package'], 'components': comp,
+                                                             'source': {'$nin': [x['_id'] for x in sources_to_delete]}},
+                                                            {'Package': 1, 'Version': 1, 'Architecture': 1, 'components': 1}),
+                              key=lambda x: common.DebVersion(x['Version']))
+            if len(all_debs) > keep:
+                debs_to_delete.extend(all_debs[0:-keep])
+
+        for source in sources_to_delete:
+            self.log.warn("Removing %s_%s from %s/%s due to retention policy", source['Package'], source['Version'], distro, comp)
+            self.remove_package(pkg=source['Package'], ver=source['Version'], distro=distro, comp=comp, source_pkg=True, skipUpdateMeta=skipUpdateMeta)
+        for deb in debs_to_delete:
+            self.log.warn("Removing %s_%s_%s from %s/%s due to retention policy", deb['Package'], deb['Version'], deb['Architecture'], distro, comp)
+            self.remove_package(pkg=deb['Package'], ver=deb['Version'], distro=distro, comp=comp, source_pkg=False, skipUpdateMeta=skipUpdateMeta)
 
     def _process_deb_file(self, file):
         with open(file) as f:
@@ -195,7 +235,7 @@ class RepoManager(common.Cacus):
                 for file in sources)
         release += u"\n"
 
-        release_gpg = self.gpg_sign(release.encode('utf-8'))
+        release_gpg = self.gpg_sign(release.encode('utf-8'), distro_settings['gpg_key'])
 
         return release, release_gpg
 
@@ -250,6 +290,7 @@ class RepoManager(common.Cacus):
                 src_pkg['Version'] = changes['Version']
 
         affected_arches.update(x['Architecture'] for x in debs)
+
         if affected_arches:
             # critical section. updating meta DB
             try:
@@ -260,7 +301,6 @@ class RepoManager(common.Cacus):
                                 {'$set': src_pkg, '$addToSet': {'components': comp}},
                                 return_document=ReturnDocument.AFTER,
                                 upsert=True)
-
                     for deb in debs:
                         if src_pkg:
                             # refer to source package, if any
@@ -269,6 +309,8 @@ class RepoManager(common.Cacus):
                             {'Package': deb['Package'], 'Version': deb['Version'], 'Architecture': deb['Architecture']},
                             {'$set': deb, '$addToSet': {'components': comp}},
                             upsert=True)
+
+                    self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
 
                     if not skipUpdateMeta:
                         if len(affected_arches) == 1 and 'all' in affected_arches:

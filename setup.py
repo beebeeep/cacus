@@ -22,6 +22,7 @@ setup(
                       'yapsy',
                       'futures',
                       'python-debian',
+                      'python-apt',
                       'chardet'
                       ],
     tests_require=['pytest'],

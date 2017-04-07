@@ -82,6 +82,8 @@ class ComplexDistroWatcher(pyinotify.ProcessEvent):
 
         if self.gpg_check:
             try:
+                if not hasattr(changes, 'raw_text'):
+                    raise Exception("GPG signature not found")
                 signer = self._gpgCheck(changes.raw_text)
             except Exception as e:
                 self.log.error("%s verification failed: %s", event.pathname, e)
