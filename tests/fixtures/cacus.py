@@ -26,8 +26,9 @@ def distro(repo_manager):
     repo_manager.create_distro('testdistro', 'description',
                                components=['comp1', 'comp2'],
                                gpg_check=False, strict=False, simple=True,
-                               incoming_wait_timeout=10)
+                               incoming_wait_timeout=10, retention=2)
     return {'distro': 'testdistro', 'components': ['comp1', 'comp2']}
+
 
 @pytest.fixture
 def full_distro(repo_manager):
@@ -36,6 +37,7 @@ def full_distro(repo_manager):
                                gpg_check=False, strict=True, simple=False,
                                incoming_wait_timeout=10)
     return {'distro': 'testdistro_full', 'components': ['comp1', 'comp2']}
+
 
 @pytest.yield_fixture(scope='session')
 def storage():
@@ -94,6 +96,7 @@ def package_is_in_repo(manager, package, distro, component):
                 if os.path.isfile(os.path.join(manager.config['storage']['path'], meta['storage_key'])):
                     return True
     return False
+
 
 def source_is_in_repo(manager, package, distro, component):
     sources = manager.db.cacus.components.find_one({

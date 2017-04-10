@@ -1,29 +1,61 @@
 #!/usr/bin/env python
 
 import os
+import time
+import email
+import shutil
+import tempfile
 import subprocess
 
 import pytest
-from debian import debfile, deb822
+from debian import debfile, deb822, changelog
 
 
 @pytest.yield_fixture(scope='session')
-def deb_pkg():
-    os.chdir(os.path.join(os.path.dirname(__file__), 'contrib/testpackage'))
-    assert subprocess.call(['debuild', '--no-lintian', '-uc', '-us']) == 0
+def package(request):
 
-    files = [os.path.abspath('../testpackage_0.1_amd64.changes')]
-    with open(files[0]) as f:
-        changes = deb822.Changes(f)
-        for x in (os.path.abspath(os.path.join('..', x['name'])) for x in changes['Files']):
-            files.append(x)
-            if x.endswith('.deb'):
-                deb = x
-    control = debfile.DebFile(deb).debcontrol()
+    class Packager(object):
+        tmp_dirs = []
 
-    yield {'control': control, 'debfile': deb, 'files': files}
+        def get(self, version):
+            tmp_dir = tempfile.mkdtemp('_cacustestpkg')
+            pkg_dir = os.path.join(tmp_dir, 'testpackage-{}'.format(version))
+            tpl_path = os.path.join(os.path.dirname(__file__), 'contrib/testpackage')
+            shutil.copytree(tpl_path, pkg_dir)
+            self.tmp_dirs.append(tmp_dir)
 
-    subprocess.call(['debclean'])
-    for file in files:
-        if os.path.isfile(file):
-            os.unlink(file)
+            os.chdir(pkg_dir)
+            with open('debian/changelog', 'w') as f:
+                ch = changelog.Changelog()
+                ch.new_block(package='testpackage', version=changelog.Version(version), distributions='unstable',
+                             urgency='low', author='John Doe <johnd@example.com>', date=email.utils.formatdate(time.mktime(time.localtime())))
+                ch.add_change('')
+                ch.add_change('  * test change in version {}'.format(version))
+                ch.add_change('')
+                ch.write_to_open_file(f)
+
+            assert subprocess.call(['debuild', '--no-lintian', '-uc', '-us']) == 0
+
+            files = [os.path.abspath('../testpackage_{}_amd64.changes'.format(version))]
+            with open(files[0]) as f:
+                changes = deb822.Changes(f)
+                for x in (os.path.abspath(os.path.join('..', x['name'])) for x in changes['Files']):
+                    files.append(x)
+                    if x.endswith('.deb'):
+                        deb = x
+            control = debfile.DebFile(deb).debcontrol()
+
+            return {'control': control, 'debfile': deb, 'files': files}
+
+        def cleanup(self):
+            for dir in self.tmp_dirs:
+                shutil.rmtree(dir)
+
+    p = Packager()
+    yield p
+    #p.cleanup()
+
+
+@pytest.fixture(scope='session')
+def deb_pkg(package):
+    return package.get('0.1')

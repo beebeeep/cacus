@@ -35,14 +35,27 @@ def test_create_repo(repo_manager):
     assert 'comp2' not in c
 
 
-def test_upload_package(distro, repo_manager, deb_pkg):
+def test_upload_and_retention_policy(distro, repo_manager, package):
     comp = distro['components'][0]
-    debs = repo_manager.upload_package(distro['distro'], comp, [deb_pkg['debfile']], None)
+    debs = []
+    uploaded = []
+    for x in range(1, 4):
+        # create versions 0.1, 0.2 and 0.3
+        debs.append(package.get('0.{}'.format(x)))
+
     for deb in debs:
-        d = repo_manager.db.packages[distro['distro']].find_one({'Package': deb['Package'], 'Version': deb['Version']})
-        assert d is not None
-        assert os.path.isfile(os.path.join(repo_manager.config['storage']['path'], d['storage_key']))
-        assert package_is_in_repo(repo_manager, deb, distro['distro'], comp)
+        # upload next version
+        result = repo_manager.upload_package(distro['distro'], comp, [deb['debfile']], changes=None)
+        uploaded.append(result)
+        for pkg in result:
+            # check if pkg uploaded successfully
+            d = repo_manager.db.packages[distro['distro']].find_one({'Package': pkg['Package'], 'Version': pkg['Version']})
+            assert d is not None
+            assert os.path.isfile(os.path.join(repo_manager.config['storage']['path'], d['storage_key']))
+            assert package_is_in_repo(repo_manager, pkg, distro['distro'], comp)
+
+    # check if ver 0.1 was deleted from distro due to retention policy
+    assert not package_is_in_repo(repo_manager, uploaded[0][0], distro['distro'], comp)
 
 
 def test_copy_remove_package(distro, repo_manager, deb_pkg):
