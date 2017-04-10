@@ -1,9 +1,20 @@
+cacus (0.7-1) unstable; urgency=medium
+
+  * Added retention policy to distributions
+  * Updated /api/v1/package/search according latest changes in DB structure
+  * Individual signing keys for distros
+  * New handle /api/v1/distro/show[/distroname] to get information about
+    distro(s)
+  * Tests!
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 10 Apr 2017 11:53:57 +0000
+
 cacus (0.6-3) unstable; urgency=medium
 
   * Fixed distro reindex
   * Suppressed gnupg logging
 
- -- Cacus maintainer entity <cacus@miga.me.uk>  Tue, 14 Mar 2017 12:04:49
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Tue, 14 Mar 2017 12:04:49 +0000
 
 cacus (0.6-2) unstable; urgency=medium
 
