@@ -59,11 +59,11 @@ class RepoManager(common.Cacus):
 
             self.db.cacus.distros.delete_many({'snapshot.origin': distro})
             for component in self.db.cacus.components.find({'distro': distro}, {'sources_file': 1}):
-                self._delete_unused_index(distro, sources=component['sources_file'])
+                self._delete_unused_index(distro, sources=component.get('sources_file', None))
             self.db.cacus.components.delete_many({'distro': distro})
 
             for repo in self.db.cacus.repos.find({'distro': distro}, {'packages_file': 1}):
-                self._delete_unused_index(distro, packages=repo['packages_file'])
+                self._delete_unused_index(distro, packages=repo.get('packages_file', None))
             self.db.cacus.repos.delete_many({'distro': distro})
 
             for file in self.db.packages[distro].find({}, {'storage_key': 1}):

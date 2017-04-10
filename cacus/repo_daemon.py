@@ -10,7 +10,7 @@ import logging
 import email.utils
 
 from tornado.ioloop import IOLoop
-from tornado.web import RequestHandler, Application, url, MissingArgumentError, Finish, stream_request_body
+from tornado.web import RequestHandler, Application, url, Finish, stream_request_body
 from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
 
@@ -75,6 +75,7 @@ class JsonRequestHandler(RequestHandler):
             raise Finish()
 
         class JsonRequestData(dict):
+
             def __init__(self, request, *args, **kwargs):
                 self._request = request
                 super(JsonRequestData, self).__init__(*args, **kwargs)
@@ -252,6 +253,34 @@ class ApiDistroReindexHandler(JsonRequestHandler):
         self.write({'success': True, 'msg': 'Reindex complete'})
 
 
+class ApiDistroShowHandler(RequestHandler):
+
+    @gen.coroutine
+    def get(self, distro):
+        if distro:
+            selector = {'distro': distro}
+        else:
+            selector = {}
+
+        result = []
+        cursor = self.settings['db'].cacus.distros.find(selector, {'release_file': 0, 'release_gpg': 0})
+        while (yield cursor.fetch_next):
+            d = cursor.next_object()
+            pkg_count = yield self.settings['db'].packages[d['distro']].count({})
+            if 'imported' in d:
+                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
+                               'type': 'mirror', 'source': d['imported']['from']})
+            elif 'snapshot' in d:
+                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
+                               'type': 'snapshot', 'origin': d['snapshot']['origin']})
+            else:
+                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
+                               'type': 'general', 'simple': d.get('simple', True), 'strict': d.get('strict', True),
+                               'gpg_key': d.get('gpg_key', None) or self.settings['config']['gpg']['sign_key']})
+
+        self.write({'success': True, 'result': result})
+
+
 class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
@@ -264,7 +293,7 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
                 'created': snapshot['lastupdated'].isoformat()
             })
 
-        self.write(ret)
+        self.write({'success': True, 'result': ret})
 
     @gen.coroutine
     def delete(self, distro):
@@ -559,6 +588,7 @@ def _make_app(config):
     api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
+    api_distro_show_re = s['repo_base'] + r"/api/v1/distro/show(?:/(?P<distro>[-_.A-Za-z0-9/]+))?$"
     # Misc/unknown/obsolete
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
@@ -577,6 +607,7 @@ def _make_app(config):
         url(api_distro_remove_re, ApiDistroRemoveHandler),
         url(api_distro_reindex_re, ApiDistroReindexHandler),
         url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
+        url(api_distro_show_re, ApiDistroShowHandler),
         url(api_dist_push_re, ApiDistPushHandler),
         ])
 
