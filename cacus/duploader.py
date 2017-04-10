@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import os
-import time
-import atexit
-import pyinotify
+import sys
+import signal
 import threading
+import time
 import Queue
-from binascii import hexlify
+
+import pyinotify
 from debian import deb822
 
 import common
@@ -60,15 +61,15 @@ class ComplexDistroWatcher(pyinotify.ProcessEvent):
     def _verifyChangesFile(self, changes, hashes):
         for file in changes['Files']:
             name = file['name']
-            if file['md5sum'] != hexlify(hashes[name]['md5']):
+            if file['md5sum'] != hashes[name]['md5'].hexdigest():
                 raise Exception(name)
         for file in changes['Checksums-Sha1']:
             name = file['name']
-            if file['sha1'] != hexlify(hashes[name]['sha1']):
+            if file['sha1'] != hashes[name]['sha1'].hexdigest():
                 raise Exception(name)
         for file in changes['Checksums-Sha256']:
             name = file['name']
-            if file['sha256'] != hexlify(hashes[name]['sha256']):
+            if file['sha256'] != hashes[name]['sha256'].hexdigest():
                 raise Exception(name)
 
     def _processChangesFile(self, event):
@@ -81,6 +82,8 @@ class ComplexDistroWatcher(pyinotify.ProcessEvent):
 
         if self.gpg_check:
             try:
+                if not hasattr(changes, 'raw_text'):
+                    raise Exception("GPG signature not found")
                 signer = self._gpgCheck(changes.raw_text)
             except Exception as e:
                 self.log.error("%s verification failed: %s", event.pathname, e)
@@ -194,18 +197,28 @@ class SimpleDistroWatcher(pyinotify.ProcessEvent):
 
 class Duploader(repo_manage.RepoManager):
 
-    def _cleanup(self, watchers):
-        for distro, distro_watchers in watchers.items():
+    def __init__(self, watcher_update_timeout=5, *args, **kwargs):
+        self.watcher_update_timeout = watcher_update_timeout
+        super(Duploader, self).__init__(*args, **kwargs)
+
+    def _sighandler(self, signal, frame):
+        self.log.info("Got signal %s, performing cleanup before exit", signal)
+        self.stop()
+        sys.exit(0)
+
+    def stop(self):
+        for distro, distro_watchers in self.watchers.items():
             for comp, notifier in distro_watchers.items():
                 self.log.info("Removing notifier for '%s/%s'", distro, comp)
                 notifier.stop()
                 del distro_watchers[comp]
-            del watchers[distro]
+            del self.watchers[distro]
 
     def run(self):
         self.watchers = {}
-        atexit.register(self._cleanup, self.watchers)
+        signal.signal(signal.SIGTERM, self._sighandler)
         incoming_root = self.config['duploader_daemon']['incoming_root']
+        self.log.info("Starting duploader daemon in %s", incoming_root)
         if not os.path.isdir(incoming_root):
             os.mkdir(incoming_root)
 
@@ -254,11 +267,12 @@ class Duploader(repo_manage.RepoManager):
                         self.watchers[distro][comp].stop()
                     del(self.watchers[distro])
 
-                time.sleep(5)
+                # TODO: don't like that sleep, perhaps tailable cursor? It's only for capped collections though.
+                time.sleep(self.watcher_update_timeout)
         except KeyboardInterrupt:
-            self._cleanup(self.watchers)
+            self.stop()
 
 
 def start_daemon(config):
-    duploader = Duploader(config)
+    duploader = Duploader(config_file=config)
     duploader.run()

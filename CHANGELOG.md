@@ -1,3 +1,11 @@
+## [Version 0.7](https://github.com/beebeeep/cacus/tree/v0.7) (2017-04-10)
+  * Added retention policy to distributions
+  * Updated /api/v1/package/search according latest changes in DB structure
+  * Individual signing keys for distros
+  * New handle /api/v1/distro/show[/distroname] to get information about
+    distro(s)
+  * Tests!
+
 ## [Version 0.6](https://github.com/beebeeep/cacus/tree/v0.6) (2017-03-13)
   * Refactored code
   * Added "simple" duploader - for binary-only repos

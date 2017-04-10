@@ -58,7 +58,7 @@ class AzureStorage(IStoragePlugin):
             log.error("Cannot delete '%s' from %s/%s: %s", key, self.storage.account_name, self.container, e)
             raise common.FatalError(e)
 
-    def put(self, key, filename=None, file=None):
+    def put(self, key, filename=None, file=None, sha256=None):
         storage_key = key
         try:
             if filename:

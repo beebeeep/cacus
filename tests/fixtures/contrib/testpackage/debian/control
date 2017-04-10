@@ -1,0 +1,10 @@
+Source: testpackage
+Maintainer: John Doe <johnd@example.com>
+Section: misc
+Priority: extra
+Standards-Version: 3.9.1
+
+Package: testpackage
+Depends: dash
+Architecture: all
+Description: Test package

@@ -75,6 +75,7 @@ class JsonRequestHandler(RequestHandler):
             raise Finish()
 
         class JsonRequestData(dict):
+
             def __init__(self, request, *args, **kwargs):
                 self._request = request
                 super(JsonRequestData, self).__init__(*args, **kwargs)
@@ -252,6 +253,34 @@ class ApiDistroReindexHandler(JsonRequestHandler):
         self.write({'success': True, 'msg': 'Reindex complete'})
 
 
+class ApiDistroShowHandler(RequestHandler):
+
+    @gen.coroutine
+    def get(self, distro):
+        if distro:
+            selector = {'distro': distro}
+        else:
+            selector = {}
+
+        result = []
+        cursor = self.settings['db'].cacus.distros.find(selector, {'release_file': 0, 'release_gpg': 0})
+        while (yield cursor.fetch_next):
+            d = cursor.next_object()
+            pkg_count = yield self.settings['db'].packages[d['distro']].count({})
+            if 'imported' in d:
+                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
+                               'type': 'mirror', 'source': d['imported']['from']})
+            elif 'snapshot' in d:
+                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
+                               'type': 'snapshot', 'origin': d['snapshot']['origin']})
+            else:
+                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
+                               'type': 'general', 'simple': d.get('simple', True), 'strict': d.get('strict', True),
+                               'gpg_key': d.get('gpg_key', None) or self.settings['config']['gpg']['sign_key']})
+
+        self.write({'success': True, 'result': result})
+
+
 class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
@@ -264,7 +293,7 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
                 'created': snapshot['lastupdated'].isoformat()
             })
 
-        self.write(ret)
+        self.write({'success': True, 'result': ret})
 
     @gen.coroutine
     def delete(self, distro):
@@ -297,6 +326,8 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         comps = req['components']
         description = req['description']
         simple = req['simple']
+        retention = req.get('retention', 0)
+        gpg_key = req.get('gpg_key', None)
         if not simple:
             gpg_check = req['gpg_check']
             strict = req['strict']
@@ -307,7 +338,7 @@ class ApiDistroCreateHandler(JsonRequestHandler):
         try:
             old = yield self.settings['workers'].submit(self.settings['manager'].create_distro, distro=distro, description=description,
                                                         components=comps, gpg_check=gpg_check, strict=strict, simple=simple,
-                                                        incoming_wait_timeout=incoming_wait_timeout)
+                                                        retention=retention, incoming_wait_timeout=incoming_wait_timeout, gpg_key=gpg_key)
             if not old:
                 self.set_status(201)
                 self.write({'success': True, 'msg': 'repo created'})
@@ -466,24 +497,41 @@ class ApiDistPushHandler(RequestHandler):
             self.write({'success': False, 'msg': r.msg})
 
 
-class ApiPkgSearchHandler(RequestHandler):
+class ApiPkgSearchHandler(JsonRequestHandler):
 
     @gen.coroutine
     def get(self, distro=None):
-        db = self.settings['db']
-        pkg = self.get_argument('pkg', '')
-        ver = self.get_argument('ver', '')
-        comp = self.get_argument('comp', '')
-        descr = self.get_argument('descr', '')
-        lang = self.get_argument('lang', '')
+        pkg = self.get_argument('pkg', None)
+        ver = self.get_argument('ver', None)
+        comp = self.get_argument('comp', None)
+        descr = self.get_argument('descr', None)
+        lang = self.get_argument('lang', None)
+        yield self._search(distro, pkg, ver, comp, descr, lang)
 
+    @gen.coroutine
+    def post(self, distro=None):
+        req = self._get_json_request()
+        pkg = req.get('pkg', None)
+        ver = req.get('ver', None)
+        comp = req.get('comp', None)
+        descr = req.get('descr', None)
+        lang = req.get('lang', None)
+        yield self._search(distro, pkg, ver, comp, descr, lang)
+
+    @gen.coroutine
+    def _search(self, distro=None, pkg=None, ver=None, comp=None, descr=None, lang=None):
+        db = self.settings['db']
         selector = {}
+
+        if not pkg and not descr:
+            self.write({'success': False, 'msg': "Specify either 'pkg' or 'descr' search term"})
+            return
         if pkg:
-            selector['Source'] = {'$regex': pkg}
+            selector['Package'] = {'$regex': pkg}
         if ver:
             selector['Version'] = {'$regex': ver}
         if comp:
-            selector['component'] = comp
+            selector['components'] = comp
         if descr:
             if lang:
                 selector['$text'] = {'$search': descr, '$language': lang}
@@ -491,23 +539,24 @@ class ApiPkgSearchHandler(RequestHandler):
                 selector['$text'] = {'$search': descr}
         projection = {
             '_id': 0,
-            'Source': 1,
-            'component': 1,
+            'Package': 1,
             'Version': 1,
-            'debs.maintainer': 1,
-            'debs.Architecture': 1,
-            'debs.Package': 1,
-            'debs.Description': 1
+            'Architecture': 1,
+            'meta.Maintainer': 1,
+            'meta.Description': 1,
+            'components': 1
         }
 
         result = {}
         pkgs = []
-        cursor = db.repos[distro].find(selector, projection)
+        cursor = db.packages[distro].find(selector, projection)
         while (yield cursor.fetch_next):
             pkg = cursor.next_object()
             if pkg:
                 p = dict((k.lower(), v) for k, v in pkg.iteritems())
-                p['debs'] = [dict((k.lower(), v) for k, v in deb.iteritems()) for deb in pkg['debs']]
+                for k, v in pkg['meta'].iteritems():
+                    p[k.lower()] = v
+                del p['meta']
                 pkgs.append(p)
         if not pkgs:
             self.set_status(404)
@@ -539,6 +588,7 @@ def _make_app(config):
     api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
+    api_distro_show_re = s['repo_base'] + r"/api/v1/distro/show(?:/(?P<distro>[-_.A-Za-z0-9/]+))?$"
     # Misc/unknown/obsolete
     api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
@@ -557,13 +607,14 @@ def _make_app(config):
         url(api_distro_remove_re, ApiDistroRemoveHandler),
         url(api_distro_reindex_re, ApiDistroReindexHandler),
         url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
+        url(api_distro_show_re, ApiDistroShowHandler),
         url(api_dist_push_re, ApiDistPushHandler),
         ])
 
 
 def start_daemon(config):
 
-    manager = repo_manage.RepoManager(config)
+    manager = repo_manage.RepoManager(config_file=config)
 
     app = _make_app(manager.config)
     server = httpserver.HTTPServer(app)

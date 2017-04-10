@@ -15,14 +15,19 @@ import common
 
 
 class RepoManager(common.Cacus):
-    def create_distro(self, distro, description, components, gpg_check, strict, simple, incoming_wait_timeout):
+
+    def create_distro(self, distro, description, components,  simple, strict=None,
+                      gpg_check=None, incoming_wait_timeout=None, retention=None, gpg_key=None):
+        if gpg_key and not self._check_key(gpg_key):
+            raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
             {'$set': {
-                'gpg_check': gpg_check, 'strict': strict, 'simple': simple,
-                'description': description, 'incoming_wait_timeout': incoming_wait_timeout}},
+                'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention,
+                'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key}},
             return_document=ReturnDocument.BEFORE,
             upsert=True)
+        self.log.info("%s distro '%s', simple: %s, components: %s", "Updated" if old_distro else "Created", distro, simple, ', '.join(components))
 
         old_components = [x['component'] for x in self.db.cacus.components.find({'distro': distro}, {'component': 1})]
 
@@ -54,16 +59,16 @@ class RepoManager(common.Cacus):
 
             self.db.cacus.distros.delete_many({'snapshot.origin': distro})
             for component in self.db.cacus.components.find({'distro': distro}, {'sources_file': 1}):
-                self._delete_unused_index(distro, sources=component['sources_file'])
+                self._delete_unused_index(distro, sources=component.get('sources_file', None))
             self.db.cacus.components.delete_many({'distro': distro})
 
             for repo in self.db.cacus.repos.find({'distro': distro}, {'packages_file': 1}):
-                self._delete_unused_index(distro, packages=repo['packages_file'])
+                self._delete_unused_index(distro, packages=repo.get('packages_file', None))
             self.db.cacus.repos.delete_many({'distro': distro})
 
-            for file in self.db.packages[distro].find({}, {'storage_key':1}):
+            for file in self.db.packages[distro].find({}, {'storage_key': 1}):
                 self.storage.delete(file['storage_key'])
-            for file in self.db.sources[distro].find({}, {'storage_key':1}):
+            for file in self.db.sources[distro].find({}, {'storage_key': 1}):
                 self.storage.delete(file['storage_key'])
 
         return "Distro '{}' was successfully removed".format(distro)
@@ -96,16 +101,52 @@ class RepoManager(common.Cacus):
             except common.FatalError:
                 self.log.warning("Cannot delete old index '%s'", key)
 
+    def _apply_retention_policy(self, distro, comp, sources, debs, skipUpdateMeta=False):
+        """ Removes old packages according to distro's retention policy
+        Note that package will be removed only from indices, and will stay in DB & storage,
+        since it's pretty tricky to determine whether it's still used in some snapshot
+        TODO: full cleanup """
+        settings = self.db.cacus.distros.find_one({'distro': distro})
+        if not settings['retention']:
+            self.log.info("No retention policy defined for distro '{}'".format(distro))
+            return
+        else:
+            keep = settings['retention']
+        sources_to_delete = []
+        debs_to_delete = []
+        for source in (x for x in sources if x):
+            all_sources = sorted(self.db.sources[distro].find({'Package': source['Package'], 'components': comp},
+                                                              {'Package': 1, 'Version': 1, '_id': 1, 'components': 1}),
+                                 key=lambda x: common.DebVersion(x['Version']))
+
+            if len(all_sources) > keep:
+                sources_to_delete.extend(all_sources[0:-keep])
+
+        for deb in (x for x in debs if x):
+            all_debs = sorted(self.db.packages[distro].find({'Package': deb['Package'], 'components': comp,
+                                                             'source': {'$nin': [x['_id'] for x in sources_to_delete]}},
+                                                            {'Package': 1, 'Version': 1, 'Architecture': 1, 'components': 1}),
+                              key=lambda x: common.DebVersion(x['Version']))
+            if len(all_debs) > keep:
+                debs_to_delete.extend(all_debs[0:-keep])
+
+        for source in sources_to_delete:
+            self.log.warn("Removing %s_%s from %s/%s due to retention policy", source['Package'], source['Version'], distro, comp)
+            self.remove_package(pkg=source['Package'], ver=source['Version'], distro=distro, comp=comp, source_pkg=True, skipUpdateMeta=skipUpdateMeta)
+        for deb in debs_to_delete:
+            self.log.warn("Removing %s_%s_%s from %s/%s due to retention policy", deb['Package'], deb['Version'], deb['Architecture'], distro, comp)
+            self.remove_package(pkg=deb['Package'], ver=deb['Version'], distro=distro, comp=comp, source_pkg=False, skipUpdateMeta=skipUpdateMeta)
+
     def _process_deb_file(self, file):
         with open(file) as f:
             hashes = self.get_hashes(file=f)
 
         doc = {
             'size': os.stat(file)[stat.ST_SIZE],
-            'sha512': binary.Binary(hashes['sha512']),
-            'sha256': binary.Binary(hashes['sha256']),
-            'sha1': binary.Binary(hashes['sha1']),
-            'md5': binary.Binary(hashes['md5'])
+            'sha512': binary.Binary(hashes['sha512'].digest()),
+            'sha256': binary.Binary(hashes['sha256'].digest()),
+            'sha1': binary.Binary(hashes['sha1'].digest()),
+            'md5': binary.Binary(hashes['md5'].digest())
             }
 
         try:
@@ -115,7 +156,7 @@ class RepoManager(common.Cacus):
             raise common.FatalError("Cannot load debfile {0}: {1}".format(file, e))
         doc.update(deb.debcontrol())
 
-        return doc
+        return doc, hashes
 
     def _process_source_file(self, file):
         with open(file) as f:
@@ -127,17 +168,17 @@ class RepoManager(common.Cacus):
         doc = {
                 'name': filename,
                 'size': os.stat(file)[stat.ST_SIZE],
-                'sha512': binary.Binary(hashes['sha512']),
-                'sha256': binary.Binary(hashes['sha256']),
-                'sha1': binary.Binary(hashes['sha1']),
-                'md5': binary.Binary(hashes['md5'])
+                'sha512': binary.Binary(hashes['sha512'].digest()),
+                'sha256': binary.Binary(hashes['sha256'].digest()),
+                'sha1': binary.Binary(hashes['sha1'].digest()),
+                'md5': binary.Binary(hashes['md5'].digest())
                 }
         if file.endswith('.dsc'):
             with open(file) as f:
                 dsc = deb822.Dsc(f)
                 dsc = dict((k, v) for k, v in dsc.items() if not k.startswith('Checksums-') and k != 'Files')
 
-        return doc, dsc
+        return doc, dsc, hashes
 
     def _create_release(self, distro, settings=None, ts=None):
 
@@ -194,7 +235,7 @@ class RepoManager(common.Cacus):
                 for file in sources)
         release += u"\n"
 
-        release_gpg = self.gpg_sign(release.encode('utf-8'))
+        release_gpg = self.gpg_sign(release.encode('utf-8'), distro_settings['gpg_key'])
 
         return release, release_gpg
 
@@ -215,11 +256,11 @@ class RepoManager(common.Cacus):
         affected_arches = set()
         for file in files:
             if file.endswith('.deb') or file.endswith('.udeb'):
-                deb = self._process_deb_file(file)
+                deb, hashes = self._process_deb_file(file)
                 ext = 'deb' if file.endswith('.deb') else 'udeb'
                 base_key = "{}/pool/{}_{}_{}.{}".format(distro, deb['Package'], deb['Version'], deb['Architecture'], ext)
                 self.log.info("Uploading %s as %s to distro '%s' component '%s'", os.path.basename(file), base_key, distro, comp)
-                storage_key = self.storage.put(base_key, filename=file)
+                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'])
 
                 # All debian packages are going to "packages" db, prepare documents to insert
                 debs.append({
@@ -231,15 +272,14 @@ class RepoManager(common.Cacus):
                 })
 
             else:
-                filename = os.path.basename(file)
-                base_key = "{0}/pool/{1}".format(distro, filename)
-                self.log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
-                storage_key = self.storage.put(base_key, filename=file)
-
                 # All other files are stored in "sources" db, fill the "files" array and prepare source document
                 if 'files' not in src_pkg:
                     src_pkg['files'] = []
-                source, dsc = self._process_source_file(file)
+                source, dsc, hashes = self._process_source_file(file)
+                filename = os.path.basename(file)
+                base_key = "{0}/pool/{1}".format(distro, filename)
+                self.log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
+                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'])
                 source['storage_key'] = storage_key
                 src_pkg['files'].append(source)
                 if dsc:
@@ -250,6 +290,7 @@ class RepoManager(common.Cacus):
                 src_pkg['Version'] = changes['Version']
 
         affected_arches.update(x['Architecture'] for x in debs)
+
         if affected_arches:
             # critical section. updating meta DB
             try:
@@ -260,7 +301,6 @@ class RepoManager(common.Cacus):
                                 {'$set': src_pkg, '$addToSet': {'components': comp}},
                                 return_document=ReturnDocument.AFTER,
                                 upsert=True)
-
                     for deb in debs:
                         if src_pkg:
                             # refer to source package, if any
@@ -270,6 +310,8 @@ class RepoManager(common.Cacus):
                             {'$set': deb, '$addToSet': {'components': comp}},
                             upsert=True)
 
+                    self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
+
                     if not skipUpdateMeta:
                         if len(affected_arches) == 1 and 'all' in affected_arches:
                             affected_arches = None      # update all arches in case of "all" arch package
@@ -278,7 +320,7 @@ class RepoManager(common.Cacus):
                 self.log.error("Error updating distro: %s", e)
                 raise common.TemporaryError("Cannot lock distro: {0}".format(e))
         else:
-            self.log.info("No changes made on distro %s/%s, skipping metadata update", distro, comp)
+            self.log.info("No changes made in '%s/%s', skipping metadata update", distro, comp)
         return debs
 
     def _update_packages(self, distro, comp, arch, now):
@@ -296,7 +338,7 @@ class RepoManager(common.Cacus):
 
         # Packages may be used by distro snapshots, so we keep all versions under unique filename
         base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, sha256.hexdigest())
-        storage_key = self.storage.put(base_key, file=packages)
+        storage_key = self.storage.put(base_key, file=packages, sha256=sha256)
 
         old_repo = self.db.cacus.repos.find_one_and_update(
                 {'distro': distro, 'component': comp, 'architecture': arch},
@@ -332,7 +374,7 @@ class RepoManager(common.Cacus):
         sha256.update(sources.getvalue())
 
         base_key = "{}/{}/source/Sources_{}".format(distro, comp, sha256.hexdigest())
-        storage_key = self.storage.put(base_key, file=sources)
+        storage_key = self.storage.put(base_key, file=sources, sha256=sha256)
 
         old_component = self.db.cacus.components.find_one_and_update(
                 {'distro': distro, 'component': comp},
@@ -367,7 +409,7 @@ class RepoManager(common.Cacus):
         if not comps or not arches:
             raise common.NotFound("Distro {} is not found or empty".format(distro))
 
-        self.log.info("Updating metadata for distro %s, components: %s, arches: %s", distro, ', '.join(comps), ', '.join(arches))
+        self.log.info("Updating metadata for distro '%s', components: %s, arches: %s", distro, ', '.join(comps), ', '.join(arches))
 
         # for all components, updates Packages (for each architecture) and Sources index files
         for comp in comps:
@@ -437,6 +479,8 @@ class RepoManager(common.Cacus):
                     string = "SHA256: {0}\n".format(hexlify(v))
                 elif k == 'sha512':
                     string = "SHA512: {0}\n".format(hexlify(v))
+                elif not v:
+                    continue
                 else:
                     string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
                 data.write(string)
@@ -521,7 +565,7 @@ class RepoManager(common.Cacus):
                         arch = {'$exists': True}
                     # touch only one specified package
                     result = self.db.packages[distro].find_one_and_update(
-                        {'Package': pkg, 'Version': ver, 'Architecure': arch, 'components': src},
+                        {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': src},
                         {'$addToSet': {'components': dst}},
                         projection={'components': 1, 'Architecture': 1, 'component': 1},
                         upsert=False,
@@ -553,7 +597,7 @@ class RepoManager(common.Cacus):
         NB it's internal function - for user all component management is performed via distro settings
         """
 
-        self.log.info("Deleting component %s from distro %s", comp, distro)
+        self.log.info("Deleting component '%s' from distro '%s'", comp, distro)
 
         self.db.sources['distro'].update_many(
             {'components': comp},

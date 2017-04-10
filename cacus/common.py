@@ -11,6 +11,7 @@ import pymongo
 import hashlib
 import requests
 import logging
+import apt_pkg
 import logging.handlers
 from binascii import hexlify
 from threading import Event
@@ -18,6 +19,27 @@ from itertools import chain, repeat
 from tornado.ioloop import IOLoop
 
 import plugin
+
+
+class _ColorFormatter(logging.Formatter):
+
+    def format(self, record):
+        if record.levelname == "DEBUG":
+            record.levelname = "\033[0;35m[DEBUG]\033[0m"
+        elif record.levelname == "INFO":
+            record.levelname = "\033[0;36m[INFO]\033[0m"
+        elif record.levelname == "WARNING":
+            record.levelname = "\033[0;33m[WARN]\033[0m"
+        elif record.levelname == "ERROR":
+            record.levelname = "\033[0;31m[ERRO]\033[0m"
+        elif record.levelname == "CRITICAL":
+            record.levelname = "\033[0;41m[CRIT]\033[0m"
+
+        # highlight own classes
+        if 'cacus' in record.name:
+            record.name = "\033[0;01m{}\033[0m".format(record.name)
+
+        return super(_ColorFormatter, self).format(record)
 
 
 class CacusError(Exception):
@@ -48,10 +70,37 @@ class DistroLockTimeout(CacusError):
     http_code = 409
 
 
+class DebVersion(object):
+    """ Just wrapper around apt_pkg.version_compare() """
+
+    def __init__(self, version):
+        apt_pkg.init_system()
+        self.version = version
+
+    def __eq__(self, x):
+        return apt_pkg.version_compare(self.version, x.version) == 0
+
+    def __ne__(self, x):
+        return not self == x
+
+    def __lt__(self, x):
+        return apt_pkg.version_compare(self.version, x.version) < 0
+
+    def __gt__(self, x):
+        return apt_pkg.version_compare(self.version, x.version) > 0
+
+    def __ge__(self, x):
+        return self == x or self > x
+
+    def __le__(self, x):
+        return self == x or self < x
+
+
 class Cacus(object):
     default_arches = ['all', 'amd64', 'i386']
 
     def __init__(self, config_file=None, config=None, mongo=None):
+        os.environ['PATH'] += ':/usr/local/bin'
         if not config:
             if not config_file:
                 if os.path.isfile('/etc/cacus.yml'):
@@ -66,11 +115,8 @@ class Cacus(object):
         # logging
         handlers = []
         dst = self.config['logging']['destinations']
-        logFormatter = logging.Formatter("%(asctime)s [%(levelname)-4.4s] %(name)s: %(message)s")
-        if dst['console']:
-            h = logging.StreamHandler()
-            h.setFormatter(logFormatter)
-            handlers.append(h)
+        logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)s] %(name)s: %(message)s")
+        colorFormatter = _ColorFormatter("\033[0;33m%(asctime)s\033[0m \033[0;32m[%(process)d]\033[0m %(levelname)s %(name)s: %(message)s")
         if dst['file']:
             h = logging.handlers.WatchedFileHandler(dst['file'])
             h.setFormatter(logFormatter)
@@ -79,6 +125,11 @@ class Cacus(object):
             h = logging.handlers.SysLogHandler(facility=dst['syslog'])
             h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
             handlers.append(h)
+        # keep console formatter at the end of the line, since it adds terminal escape sequences to log entry attributes
+        if dst['console']:
+            h = logging.StreamHandler(stream=sys.stdout)
+            h.setFormatter(colorFormatter)
+            handlers.append(h)
 
         self._rootLogger = logging.getLogger('')
 
@@ -86,6 +137,7 @@ class Cacus(object):
             'debug': logging.DEBUG, 'info': logging.INFO, 'warning': logging.WARNING,
             'error': logging.ERROR, 'critical': logging.CRITICAL
         }
+        print self.config
         self._rootLogger.setLevel(levels[self.config['logging']['level']])
         for handler in handlers:
             self._rootLogger.addHandler(handler)
@@ -97,8 +149,7 @@ class Cacus(object):
             self.gpg = gnupg.GPG(homedir=self.config['gpg']['home'])
             # gnupg is a little bit too talkative
             logging.getLogger('gnupg').setLevel(logging.WARNING)
-            keys = [x for x in self.gpg.list_keys(secret=True) if self.config['gpg']['sign_key'] in x['keyid']]
-            if len(keys) < 1:
+            if not self._check_key(self.config['gpg']['sign_key']):
                 raise Exception("Cannot find secret key with ID {}".format(self.config['gpg']['sign_key']))
         except Exception as e:
             self.log.critical("GPG initialization error: %s", e)
@@ -160,6 +211,7 @@ class Cacus(object):
                 [('components', pymongo.DESCENDING),
                  ('Architecture', pymongo.DESCENDING)])
             self.db.packages[distro].create_index('source')
+            self.db.packages[distro].create_index([('meta.Description', pymongo.TEXT)])
 
             self.db.sources[distro].create_index(
                 [('Package', pymongo.DESCENDING),
@@ -169,6 +221,8 @@ class Cacus(object):
 
     @staticmethod
     def get_hashes(file=None, filename=None):
+        # XXX: This is pretty fat function, but I have no idea how to optimize it - my tests shows that
+        # it's almost as fast as "openssl [md5,sha1,sha256,sha256]", despite it's pretty straightforward approach
         if filename:
             file = open(filename)
 
@@ -180,7 +234,8 @@ class Cacus(object):
         fpos = file.tell()
         file.seek(0)
 
-        for chunk in iter(lambda: file.read(4096), b''):
+        # 128 KiB is default readahead for big files
+        for chunk in iter(lambda: file.read(1024*128), b''):
             md5.update(chunk)
             sha1.update(chunk)
             sha256.update(chunk)
@@ -191,7 +246,7 @@ class Cacus(object):
         if filename:
             file.close()
 
-        return {'md5': md5.digest(), 'sha1': sha1.digest(), 'sha256': sha256.digest(), 'sha512': sha512.digest()}
+        return {'md5': md5, 'sha1': sha1, 'sha256': sha256, 'sha512': sha512}
 
     def download_file(self, url, filename=None, md5=None, sha1=None, sha256=None):
         log = logging.getLogger("cacus.downloader")
@@ -239,15 +294,22 @@ class Cacus(object):
 
         return filename
 
-    def gpg_sign(self, data):
-        signature = self.gpg.sign(data, default_key=self.config['gpg']['sign_key'], detach=True, clearsign=False)
+    def gpg_sign(self, data, key_id=None):
+        if not key_id:
+            key_id = self.config['gpg']['sign_key']
+        signature = self.gpg.sign(data, default_key=key_id, detach=True, clearsign=False)
         return signature.data
+
+    def _check_key(self, key_id):
+        keys = [x for x in self.gpg.list_keys(secret=True) if key_id in x['keyid']]
+        return len(keys) > 0
 
 
 class ProxyStream(object):
     """ stream-like object for streaming result of blocking function to
         client of Tornado server
     """
+
     def __init__(self, handler, headers=[]):
         self._handler = handler
         self._headers = headers
@@ -344,17 +406,17 @@ def with_retries(attempts, delays, fun, *args, **kwargs):
     # repeat last delay infinitely
     delays = chain(delays[:-1], repeat(delays[-1]))
     exc = Exception("Don't blink!")
-    for try_ in xrange(attempts):
-            try:
-                result = fun(*args, **kwargs)
-            except (Timeout, TemporaryError, DistroLockTimeout) as e:
-                exc = e
-                pass
-            except (FatalError, NotFound, Exception):
-                raise
-            else:
-                break
-            time.sleep(delays.next())
+    for attempt in xrange(attempts):
+        try:
+            result = fun(*args, **kwargs)
+        except (Timeout, TemporaryError, DistroLockTimeout) as e:
+            exc = e
+            pass
+        except (FatalError, NotFound, Exception):
+            raise
+        else:
+            break
+        time.sleep(delays.next())
     else:
         raise exc
     return result
