@@ -1,3 +1,7 @@
+## [Version 0.7.2](https://github.com/beebeeep/cacus/tree/v0.7.2) (2017-04-11)
+ * Added separate access log
+ * Fixed GPG key availability check
+
 ## [Version 0.7](https://github.com/beebeeep/cacus/tree/v0.7) (2017-04-10)
   * Added retention policy to distributions
   * Updated /api/v1/package/search according latest changes in DB structure

@@ -57,7 +57,8 @@ def cacus_config(request, storage):
         'gpg': {'home': '~/.gnupg', 'sign_key': keyid},
         'lock_cleanup_timeout': 3600,
         'logging': {
-            'destinations': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
+            'app': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
+            'access': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
             'level': 'debug'
         },
         'plugin_path': ['/opt/cacus/plugins', os.path.join(os.path.dirname(__file__), '../../plugins')],
