@@ -616,6 +616,9 @@ def start_daemon(config):
 
     manager = repo_manage.RepoManager(config_file=config)
 
+    for handler in common._setup_log_handlers(manager.config['logging']['access']):
+        access_log.addHandler(handler)
+
     app = _make_app(manager.config)
     server = httpserver.HTTPServer(app)
     server.bind(manager.config['repo_daemon']['port'])

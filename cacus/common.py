@@ -113,23 +113,12 @@ class Cacus(object):
             self.config = config
 
         # logging
-        handlers = []
-        dst = self.config['logging']['destinations']
-        logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)s] %(name)s: %(message)s")
-        colorFormatter = _ColorFormatter("\033[0;33m%(asctime)s\033[0m \033[0;32m[%(process)d]\033[0m %(levelname)s %(name)s: %(message)s")
-        if dst['file']:
-            h = logging.handlers.WatchedFileHandler(dst['file'])
-            h.setFormatter(logFormatter)
-            handlers.append(h)
-        if dst['syslog']:
-            h = logging.handlers.SysLogHandler(facility=dst['syslog'])
-            h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
-            handlers.append(h)
-        # keep console formatter at the end of the line, since it adds terminal escape sequences to log entry attributes
-        if dst['console']:
-            h = logging.StreamHandler(stream=sys.stdout)
-            h.setFormatter(colorFormatter)
-            handlers.append(h)
+        handlers = _setup_log_handlers(self.config['logging']['app'])
+
+        class __AccessLogFilter(logging.Filter):
+
+            def filter(self, record):
+                return record.name != 'tornado.access'
 
         self._rootLogger = logging.getLogger('')
 
@@ -140,6 +129,9 @@ class Cacus(object):
         print self.config
         self._rootLogger.setLevel(levels[self.config['logging']['level']])
         for handler in handlers:
+            # repo_daemon will setup own logger for his access logs,
+            # so filter out 'tornado.access' entries from app log
+            handler.addFilter(__AccessLogFilter())
             self._rootLogger.addHandler(handler)
 
         self.log = logging.getLogger('cacus.{}'.format(type(self).__name__))
@@ -301,8 +293,9 @@ class Cacus(object):
         return signature.data
 
     def _check_key(self, key_id):
-        keys = [x for x in self.gpg.list_keys(secret=True) if key_id in x['keyid']]
-        return len(keys) > 0
+        public_keys = [x for x in self.gpg.list_keys(secret=False) if key_id in x['keyid']]
+        secret_keys = [x for x in self.gpg.list_keys(secret=True) if key_id in x['keyid']]
+        return len(public_keys) > 0 and len(secret_keys) > 0
 
 
 class ProxyStream(object):
@@ -402,6 +395,25 @@ class DistroLock(object):
         self._unlock(self.comps)
 
 
+def _setup_log_handlers(config):
+    handlers = []
+    if config['file']:
+        h = logging.handlers.WatchedFileHandler(config['file'])
+        h.setFormatter(__logFormatter)
+        handlers.append(h)
+    if config['syslog']:
+        h = logging.handlers.SysLogHandler(facility=config['syslog'])
+        h.setFormatter(logging.Formatter("[%(levelname)-4.4s] %(name)s: %(message)s"))
+        handlers.append(h)
+    # keep console formatter at the end of the line, since it adds terminal escape sequences to log entry attributes
+    if config['console']:
+        h = logging.StreamHandler(stream=sys.stdout)
+        h.setFormatter(__colorFormatter)
+        handlers.append(h)
+
+    return handlers
+
+
 def with_retries(attempts, delays, fun, *args, **kwargs):
     # repeat last delay infinitely
     delays = chain(delays[:-1], repeat(delays[-1]))
@@ -420,3 +432,7 @@ def with_retries(attempts, delays, fun, *args, **kwargs):
     else:
         raise exc
     return result
+
+
+__logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)s] %(name)s: %(message)s")
+__colorFormatter = _ColorFormatter("\033[0;33m%(asctime)s\033[0m \033[0;32m[%(process)d]\033[0m %(levelname)s %(name)s: %(message)s")

@@ -10,11 +10,15 @@ storage:
 #    retries: 3
 
 logging:
-  level: DEBUG 
-  destinations:
+  level: debug
+  app:
     console: true
     syslog: False       # or syslog facility (daemon, user etc)
     file: /tmp/cacus.log
+  access:
+    console: true
+    syslog: False       # or syslog facility (daemon, user etc)
+    file: /tmp/cacus-access.log
 
 db:
   # threat this subtree as kwargs to pymongo.MongoClient(),
@@ -23,6 +27,9 @@ db:
     - mongodb://cacus:secret@example.org:27017
   ssl: True
   socketKeepAlive: true
+  heartbeatFrequencyMS: 5000
+  socketTimeoutMS: 1000
+  connectTimeoutMS: 5000
 
 repo_daemon:
   port: 1488
