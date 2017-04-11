@@ -1,3 +1,10 @@
+cacus (0.7.2) unstable; urgency=medium
+
+  * Added separate access log
+  * Fixed GPG key availability check
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Tue, 11 Apr 2017 09:28:34 +0000
+
 cacus (0.7-1) unstable; urgency=medium
 
   * Added retention policy to distributions
