@@ -108,7 +108,7 @@ class RepoManager(common.Cacus):
         XXX: should be called under DistroLock
         TODO: full cleanup """
         settings = self.db.cacus.distros.find_one({'distro': distro})
-        if not settings['retention']:
+        if not settings.get('retention', False):
             self.log.info("No retention policy defined for distro '{}'".format(distro))
             return
         else:
@@ -238,7 +238,7 @@ class RepoManager(common.Cacus):
                 for file in sources)
         release += u"\n"
 
-        release_gpg = self.gpg_sign(release.encode('utf-8'), distro_settings['gpg_key'])
+        release_gpg = self.gpg_sign(release.encode('utf-8'), distro_settings.get('gpg_key', None))
 
         return release, release_gpg
 
