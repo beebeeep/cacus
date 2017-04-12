@@ -1,6 +1,9 @@
+## [Version 0.7.3](https://github.com/beebeeep/cacus/tree/v0.7.3) (2017-04-12)
+  * Update metadata of all affected components while reuploading the package
+
 ## [Version 0.7.2](https://github.com/beebeeep/cacus/tree/v0.7.2) (2017-04-11)
- * Added separate access log
- * Fixed GPG key availability check
+  * Added separate access log
+  * Fixed GPG key availability check
 
 ## [Version 0.7](https://github.com/beebeeep/cacus/tree/v0.7) (2017-04-10)
   * Added retention policy to distributions
