@@ -105,6 +105,7 @@ class RepoManager(common.Cacus):
         """ Removes old packages according to distro's retention policy
         Note that package will be removed only from indices, and will stay in DB & storage,
         since it's pretty tricky to determine whether it's still used in some snapshot
+        XXX: should be called under DistroLock
         TODO: full cleanup """
         settings = self.db.cacus.distros.find_one({'distro': distro})
         if not settings['retention']:
@@ -132,10 +133,12 @@ class RepoManager(common.Cacus):
 
         for source in sources_to_delete:
             self.log.warn("Removing %s_%s from %s/%s due to retention policy", source['Package'], source['Version'], distro, comp)
-            self.remove_package(pkg=source['Package'], ver=source['Version'], distro=distro, comp=comp, source_pkg=True, skipUpdateMeta=skipUpdateMeta)
+            self.remove_package(pkg=source['Package'], ver=source['Version'], distro=distro, comp=comp,
+                                source_pkg=True, skipUpdateMeta=skipUpdateMeta, locked=True)
         for deb in debs_to_delete:
             self.log.warn("Removing %s_%s_%s from %s/%s due to retention policy", deb['Package'], deb['Version'], deb['Architecture'], distro, comp)
-            self.remove_package(pkg=deb['Package'], ver=deb['Version'], distro=distro, comp=comp, source_pkg=False, skipUpdateMeta=skipUpdateMeta)
+            self.remove_package(pkg=deb['Package'], ver=deb['Version'], distro=distro, comp=comp,
+                                source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True)
 
     def _process_deb_file(self, file):
         with open(file) as f:
@@ -294,7 +297,9 @@ class RepoManager(common.Cacus):
         if affected_arches:
             # critical section. updating meta DB
             try:
-                with common.DistroLock(self.db, distro, [comp]):
+                # block whole distro since we will possibly update not only 'comp' component
+                with common.DistroLock(self.db, distro):
+                    components_to_update = set([comp])
                     if src_pkg:
                         src = self.db.sources[distro].find_one_and_update(
                                 {'Package': src_pkg['Package'], 'Version': src_pkg['Version']},
@@ -305,17 +310,19 @@ class RepoManager(common.Cacus):
                         if src_pkg:
                             # refer to source package, if any
                             deb['source'] = src['_id']
-                        self.db.packages[distro].find_one_and_update(
+                        result = self.db.packages[distro].find_one_and_update(
                             {'Package': deb['Package'], 'Version': deb['Version'], 'Architecture': deb['Architecture']},
                             {'$set': deb, '$addToSet': {'components': comp}},
+                            return_document=ReturnDocument.AFTER,
                             upsert=True)
+                        components_to_update.update(result['components'])
 
                     self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
 
                     if not skipUpdateMeta:
                         if len(affected_arches) == 1 and 'all' in affected_arches:
                             affected_arches = None      # update all arches in case of "all" arch package
-                        self.update_distro_metadata(distro, [comp], affected_arches)
+                        self.update_distro_metadata(distro, components_to_update, affected_arches)
             except common.DistroLockTimeout as e:
                 self.log.error("Error updating distro: %s", e)
                 raise common.TemporaryError("Cannot lock distro: {0}".format(e))
@@ -489,10 +496,10 @@ class RepoManager(common.Cacus):
         data.write("\n")
         return data
 
-    def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False):
+    def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False, locked=False):
         affected_arches = []
         try:
-            with common.DistroLock(self.db, distro, [comp]):
+            with common.DistroLock(self.db, distro, [comp], already_locked=locked):
                 if source_pkg:
                     # remove source package (if any) and all binary packages within it from component
                     result = self.db.sources[distro].find_one_and_update(

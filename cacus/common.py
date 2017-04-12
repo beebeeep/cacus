@@ -335,9 +335,11 @@ class DistroLock(object):
     Ostrich algorithm used for dealing with deadlocks. You can always add some retries if returning 409 is not an option
     """
 
-    def __init__(self, db, distro, comps=None, timeout=30):
+    def __init__(self, db, distro, comps=None, timeout=30, already_locked=False):
         self.db = db
         self.distro = distro
+        # do nothing if already_locked == True, intended to use if caller do knows that he is already under lock
+        self.already_locked = already_locked
         if not comps:
             self.comps = [x['component'] for x in self.db.cacus.components.find({'distro': distro}, {'component': 1})]
         else:
@@ -362,6 +364,10 @@ class DistroLock(object):
                 self.log.error("Error while unlocking %s/%s: %s", self.distro, comp, sys.exc_info())
 
     def __enter__(self):
+        if self.already_locked:
+            self.log.debug("%s/%s is already locked", self.distro, self.comps)
+            return
+
         self.log.debug("Trying to lock %s/%s", self.distro, self.comps)
         while True:
             locked = []
@@ -392,7 +398,8 @@ class DistroLock(object):
                 break       # good, we just locked all comps
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self._unlock(self.comps)
+        if not self.already_locked:
+            self._unlock(self.comps)
 
 
 def _setup_log_handlers(config):
