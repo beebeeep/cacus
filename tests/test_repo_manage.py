@@ -68,7 +68,9 @@ def test_copy_remove_package(distro, repo_manager, deb_pkg):
     assert not package_is_in_repo(repo_manager, deb, distro['distro'], dst)
 
 
-def test_create_snapshot(distro, repo_manager):
+def test_create_update_snapshot(distro, repo_manager, package):
+
+    # test indices
     repo_manager.create_snapshot(distro['distro'], 'testsnap')
     s = repo_manager.db.cacus.distros.find_one({'distro': repo_manager._get_snapshot_name(distro['distro'], 'testsnap')})
     assert s['snapshot'] == {'origin': distro['distro'], 'name': 'testsnap'}
@@ -83,6 +85,23 @@ def test_create_snapshot(distro, repo_manager):
         orig_srcs = repo_manager.db.cacus.components.find_one({'distro': distro['distro'], 'component': comp})['sources_file']
         sn_srcs = repo_manager.db.cacus.components.find_one({'distro': s['distro'], 'component': comp})['sources_file']
         assert orig_srcs == sn_srcs
+
+    # test packages
+    deb1 = package.get('0.1')
+    deb2 = package.get('0.2')
+    comp = distro['components'][0]
+    snap1 = repo_manager._get_snapshot_name(distro['distro'], 'snap1')
+    snap2 = repo_manager._get_snapshot_name(distro['distro'], 'snap2')
+
+    pkg1 = repo_manager.upload_package(distro['distro'], comp, [deb1['debfile']], changes=None)[0]
+    repo_manager.create_snapshot(distro['distro'], 'snap1')
+    assert package_is_in_repo(repo_manager, pkg1, snap1, comp)
+
+    repo_manager.create_snapshot(distro['distro'], 'snap2', from_snapshot='snap1')
+    pkg2 = repo_manager.upload_package(distro['distro'], comp, [deb2['debfile']], changes=None)[0]
+    repo_manager.create_snapshot(distro['distro'], 'snap1')
+    assert package_is_in_repo(repo_manager, pkg2, snap1, comp)
+    assert not package_is_in_repo(repo_manager, pkg2, snap2, comp)
 
 
 def test_delete_snapshot(distro, repo_manager):

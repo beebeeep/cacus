@@ -5,6 +5,10 @@ COPY cacus /tmp/cacus/cacus
 COPY contrib /tmp/cacus/contrib
 COPY plugins /tmp/cacus/plugins
 
+ENV PYTHONPATH="/usr/lib/python2.7/dist-packages"
+# python-apt in PyPi seems to be abandoned
+RUN apt-get update && apt-get -y install python-apt gnupg
+RUN pip --no-cache-dir list
 RUN cd /tmp/cacus && python setup.py install
 RUN mkdir -p /opt/cacus/plugins
 

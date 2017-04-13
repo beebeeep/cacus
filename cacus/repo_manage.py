@@ -108,7 +108,7 @@ class RepoManager(common.Cacus):
         XXX: should be called under DistroLock
         TODO: full cleanup """
         settings = self.db.cacus.distros.find_one({'distro': distro})
-        if not settings['retention']:
+        if not settings.get('retention', False):
             self.log.info("No retention policy defined for distro '{}'".format(distro))
             return
         else:
@@ -238,7 +238,7 @@ class RepoManager(common.Cacus):
                 for file in sources)
         release += u"\n"
 
-        release_gpg = self.gpg_sign(release.encode('utf-8'), distro_settings['gpg_key'])
+        release_gpg = self.gpg_sign(release.encode('utf-8'), distro_settings.get('gpg_key', None))
 
         return release, release_gpg
 
@@ -638,7 +638,7 @@ class RepoManager(common.Cacus):
 
         return "Snapshot '{}' was deleted".format(snapshot_name)
 
-    def create_snapshot(self, distro, name):
+    def create_snapshot(self, distro, name, from_snapshot=None, allow_update=True):
         """ Creates distribution snapshot distro -> distro/name
         Important note about implementation: as far as distro snapshot meant to be lightweight and
         cheap to create, snapshotting is implemented by just copying existing APT indices (Packages, Sources etc) -
@@ -650,16 +650,22 @@ class RepoManager(common.Cacus):
         snapshot_name = self._get_snapshot_name(distro, name)
         snapshot_info = {'origin': distro, 'name': name}
 
+        if from_snapshot:
+            distro = self._get_snapshot_name(distro, from_snapshot)
+
+
         existing = self.db.cacus.distros.find_one({'distro': snapshot_name})
         if existing:
-            # raise common.Conflict("Snapshot '{}' already exists".format(name))
-            self.delete_snapshot(distro, name)
-            action = "updated"
+            if allow_update:
+                self.delete_snapshot(distro, name)
+                action = "updated"
+            else:
+                raise common.Conflict("Snapshot '{}' already exists".format(name))
         else:
             action = "created"
         origin = self.db.cacus.distros.find_one({'distro': distro})
         if not origin:
-            raise common.NotFound("Distro '{}' not found".format(distro))
+            raise common.NotFound("Distro or snapshot '{}' not found".format(distro))
 
         try:
             with common.DistroLock(self.db, distro):
