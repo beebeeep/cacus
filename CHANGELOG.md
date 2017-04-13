@@ -1,3 +1,7 @@
+## [Version 0.7.4](https://github.com/beebeeep/cacus/tree/v0.7.4) (2017-04-11)
+  * Snapshotting from another snapshot
+  * Defaults for some new distro parameters
+
 ## [Version 0.7.3](https://github.com/beebeeep/cacus/tree/v0.7.3) (2017-04-12)
   * Update metadata of all affected components while reuploading the package
 
