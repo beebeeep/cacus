@@ -308,9 +308,12 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
-        snapshot = self._get_json_request()['snapshot']
+        req = self._get_json_request()
+        snapshot_name = req['snapshot']
+        from_snapshot = req.get('from', None)
         try:
-            msg = yield self.settings['workers'].submit(self.settings['manager'].create_snapshot, distro=distro, name=snapshot)
+            msg = yield self.settings['workers'].submit(self.settings['manager'].create_snapshot,
+                                                        distro=distro, name=snapshot_name, from_snapshot=from_snapshot)
         except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})

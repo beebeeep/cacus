@@ -62,7 +62,7 @@ def cacus_config(request, storage):
             'level': 'debug'
         },
         'plugin_path': ['/opt/cacus/plugins', os.path.join(os.path.dirname(__file__), '../../plugins')],
-        'repo_daemon': {'port': 8088, 'proxy_storage': True, 'repo_base': '/debian', 'storage_subdir': 'storage'},
+        'repo_daemon': {'port': 8088, 'proxy_storage': True, 'repo_base': '/debian', 'storage_subdir': ''},
         'retry_count': 3,
         'retry_delays': [2, 5, 10, 30, 60, 90],
         'storage': {'path': os.path.join(storage, 'pool'), 'type': 'FileStorage'}
@@ -93,8 +93,7 @@ def package_is_in_repo(manager, package, distro, component):
     with open(os.path.join(manager.config['storage']['path'], packages)) as f:
         for pkg in deb822.Packages.iter_paragraphs(f):
             if pkg['Package'] == package['Package'] and pkg['Version'] == package['Version']:
-                meta = manager.db.packages[distro].find_one({'Package': pkg['Package'], 'Version': pkg['Version']})
-                if os.path.isfile(os.path.join(manager.config['storage']['path'], meta['storage_key'])):
+                if os.path.isfile(os.path.join(manager.config['storage']['path'], pkg['Filename'])):
                     return True
     return False
 
