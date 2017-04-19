@@ -623,7 +623,7 @@ def start_daemon(config):
         access_log.addHandler(handler)
 
     app = _make_app(manager.config)
-    server = httpserver.HTTPServer(app)
+    server = httpserver.HTTPServer(app, max_body_size=manager.config['repo_daemon'].get('max_body_size', 200*1024*1024))
     server.bind(manager.config['repo_daemon']['port'])
     server.start(0)
     db = motor.MotorClient(**(manager.config['db']))

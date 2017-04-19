@@ -1,3 +1,9 @@
+cacus (0.7.5) unstable; urgency=medium
+
+  * Added max_body_size to repo_daemon
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Wed, 19 Apr 2017 19:53:43 +0000
+
 cacus (0.7.4) unstable; urgency=medium
 
   * Snapshotting from another snapshot

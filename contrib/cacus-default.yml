@@ -36,6 +36,7 @@ repo_daemon:
   repo_base: '/debian'
   storage_subdir: 'storage'
   proxy_storage: true
+  max_body_size: 1073741824         # 1 GiB (I think it's safe to set any value, since body is streamed, not saved in memory in one piece)
 
 duploader_daemon:
   incoming_root: /srv/cacus/incoming/
