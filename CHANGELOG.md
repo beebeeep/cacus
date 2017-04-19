@@ -1,3 +1,6 @@
+## [Version 0.7.5](https://github.com/beebeeep/cacus/tree/v0.7.5) (2017-04-19)
+  * Added `max_body_size` setting to `repo_daemon``` config
+
 ## [Version 0.7.4](https://github.com/beebeeep/cacus/tree/v0.7.4) (2017-04-11)
   * Snapshotting from another snapshot
   * Defaults for some new distro parameters
