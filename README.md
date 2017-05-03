@@ -55,7 +55,7 @@ Start repository HTTP daemon (APT and REST APIs):
 cacus --config /path/to/cacus.yaml --repo-daemon
 ```
 
-REST API documentation pending, some examples:
+REST API documentation can be found [here](https://cacus.miga.me.uk/docs/), some examples:
 ```shell
 # Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo/[unstable, testing, main]
 curl -X POST -H 'Content-Type: application/json' -vks \
