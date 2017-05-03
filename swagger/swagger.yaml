@@ -9,12 +9,15 @@ schemes:
 basePath: /api/v1
 produces:
   - application/json
+  - application/octet-stream
 paths:
   /dists/{distro}/Release:
     get:
       summary: Distro Release file
       description: |
         Release file contains meta-information about the distribution and checksums for the indices, signed with a GPG clearsign signature
+      produces: 
+        - application/octet-stream
       parameters:
         - name: distro
           in: path
@@ -27,12 +30,14 @@ paths:
         200:
           description: Release file
           schema:
-            type: string
+            type: file
   "/dists/{distro}/{component}/{arch}/Packages":
     get:
       summary: Packages index
       description: |
         Release file contains meta-information about the distribution and checksums for the indices, signed with a GPG clearsign signature
+      produces: 
+        - application/octet-stream
       parameters:
         - name: distro
           in: path
@@ -54,9 +59,9 @@ paths:
         - APT API
       responses:
         200:
-          description: Release file
+          description: Pacakges file
           schema:
-            type: string
+            type: file
 
   /package/upload/{distro}/{component}:
     put:
@@ -204,6 +209,8 @@ paths:
           description: Words/phrase to search in package description
           required: false
           type: string
+      tags:
+        - Packages
       responses:
         200:
           description: Package successfully removed
@@ -271,6 +278,7 @@ paths:
         - name: distro_settings
           in: body
           description: Distro settings
+
           required: true
           schema:
             '$ref': '#/definitions/DistroSettings'
@@ -294,7 +302,262 @@ paths:
           schema:
             $ref: '#/definitions/OperationResult'
 
+  /distro/show/{distro}:
+    post:
+      summary: Show information about distros 
+      description: |
+        Show information about all distros or about some specific one
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: false
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully deleted
+          schema:
+            $ref: '#/definitions/DistroShowResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/remove/{distro}:
+    post:
+      summary: Remove distro 
+      description: |
+        Removes distro. All watchers will be stopped and clean up performed. Note that distro snapshots will be also deleted as far as all files in storage.
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully deleted
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/reindex/{distro}:
+    post:
+      summary: Reindex distro
+      description: |
+        Update distro indices (Release, Packages, Sources etc).
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully reindexed
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/snapshot/{distro}:
+    get:
+      summary: List distro snapshots
+      tags:
+        - Snapshots
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      responses:
+        200:
+          description: Distro snapshots
+          schema:
+            $ref: '#/definitions/DistroSnapshots'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+    post:
+      summary: Create/update distro snapshot
+      description: |
+        Distro snapshot is the read-only copy of distro current state, including all its components and repos.
+        Snapshotting is lightweight operation which only changes metadata, so snapshots won't consume any space in storage.
+        Note that you can create snapshot from another snapshot, i.e just make its copy - that is useful for switching snapsthos.
+      tags:
+        - Snapshots
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: snapshot_params
+          in: body
+          description: Snapshotting parameters
+          required: true
+          schema:
+            '$ref': '#/definitions/DistroSnapshotParams'
+      responses:
+        200:
+          description: Snapshot was successfully created
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro or snapshot not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+    delete:
+      summary: Delete distro snapshot
+      tags:
+        - Snapshots
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: snapshot_params
+          in: body
+          description: Snapshotting parameters
+          required: true
+          schema:
+            $ref: '#/definitions/DistroSnapshotDeleteParams'
+      responses:
+        200:
+          description: Snapshot was successfully deleted
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro or snapshot not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
 definitions:
+  DistroShowResult:
+    type: object
+    properties:
+      success:
+        type: boolean
+        description: whether operation was successful or not
+      result:
+        type: array
+        items:
+          type: object
+          properties:
+            distro:
+              type: string
+              description: distro name
+            description:
+              type: string
+              description: distro description
+            gpg_key:
+              type: string
+              description: custom GPG key for this distro, if any
+            lastupdated:
+              type: string
+              format: dateTime
+              description: timestamp of last update of distro
+            simple:
+              type: boolean
+              description: whether this repos support sources packages or no
+            strict:
+              type: boolean
+              description: |
+                whether duploader will accept packages only from known subjects (only for `simple: false` distros)
+            type:
+              type: string
+              description: type of distro
+              enum: 
+                - general
+                - snapshot
+                - mirror
+            origin:
+              type: string
+              description: name of snapshot's source distro
+            source:
+              type: string
+              description: URL to the source of this mirror
+            packages:
+              type: integer
+              description: number of packages in this distro
+
+  DistroSnapshots:
+    type: object
+    properties:
+      success:
+        type: boolean
+        description: whether operation was successful or not
+      result:
+        type: object
+        properties:
+          distro:
+            type: string
+            description: distro name
+          snapshots:
+            type: array
+            description: array of distro snapshots
+            items:
+              type: object
+              properties:
+                created:
+                  type: string
+                  format: dateTeim
+                  description: timestamp of snapshot
+                snapshot:
+                  type: string
+                  description: snapshot name
+
+  DistroSnapshotDeleteParams:
+    type: object
+    properties:
+      snapshot_name:
+        type: string
+        description: Snapshot name
+      required:
+        - snapshot_name
+
+  DistroSnapshotParams:
+    type: object
+    properties:
+      snapshot_name:
+        type: string
+        description: Snapshot name
+      from_snapshot: 
+        type: string
+        description: Name of snapshot to make copy of
+      required:
+        - snapshot_name
+
   DistroSettings:
     type: object
     properties:
