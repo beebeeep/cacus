@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="cacus",
-    version="0.7.5",
+    version="0.7.6",
     author="Danila Migalin",
     author_email="me@miga.me.uk",
     url="https://github.com/beebeeep/cacus",
@@ -23,7 +23,9 @@ setup(
                       'futures',
                       'python-debian',
                       'python-apt',
-                      'chardet'
+                      'chardet',
+                      'ipaddress',
+                      'jose'
                       ],
     tests_require=['pytest'],
     entry_points={

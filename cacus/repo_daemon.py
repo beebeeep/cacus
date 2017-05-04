@@ -6,13 +6,16 @@ import json
 import time
 import uuid
 import motor
+import base64
 import logging
 import email.utils
 
+from jose import jwt
 from tornado.ioloop import IOLoop
 from tornado.web import RequestHandler, Application, url, Finish, stream_request_body
 from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
+from ipaddress import ip_address
 
 import common
 import repo_manage
@@ -59,7 +62,8 @@ class CachedRequestHandler(RequestHandler):
 
 
 # TODO JSON schema?
-class JsonRequestHandler(RequestHandler):
+class ApiRequestHandler(RequestHandler):
+    """ Provides JSON body processing and authentication/authorization using JWT """
 
     def _get_json_request(self):
         if 'application/json' not in self.request.headers.get('Content-type', '').lower():
@@ -90,6 +94,42 @@ class JsonRequestHandler(RequestHandler):
                     raise Finish()
 
         return JsonRequestData(self, req)
+
+    def _check_token(self, aud):
+        config = self.settings['manager'].config
+
+        ip = ip_address(unicode(self.request.remote_ip))
+        for net in config['repo_daemon']['privileged_nets']:
+            if ip in net:
+                # no auth required
+                return {}
+
+        try:
+            secret = base64.b64decode(config['repo_daemon']['auth_secret'])
+            if 'Authorization' not in self.request.headers:
+                raise Exception("Authorization required")
+            scheme, token = self.request.headers['Authorization'].split(' ')
+            if scheme != 'Bearer':
+                raise Exception("Use Bearer authorization scheme")
+            try:
+                claim = jwt.decode(token, secret, audience=aud)
+            except jwt.JWTClaimsError as e:
+                if 'Invalid audience' in e:
+                    claim = jwt.decode(token, config['repo_daemon']['auth_secret'], audience=common.Cacus.admin_access)
+        except Exception as e:
+            self.set_status(401)
+            self.write({'success': False, 'msg': str(e)})
+            raise Finish()
+
+        app_log.user = claim['sub']
+        access_log.user = claim['sub']
+        self.settings['manager'].log.user = claim['sub']
+        return claim
+
+    def on_finish(self):
+        app_log.user = None
+        access_log.user = None
+        self.settings['manager'].log.user = None
 
 
 class StorageHandler(RequestHandler):
@@ -240,10 +280,11 @@ class ReleaseHandler(CachedRequestHandler):
             self.write(doc['release_file'])
 
 
-class ApiDistroReindexHandler(JsonRequestHandler):
+class ApiDistroReindexHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
+        self._check_token(distro)
         try:
             yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro)
         except common.NotFound as e:
@@ -253,10 +294,11 @@ class ApiDistroReindexHandler(JsonRequestHandler):
         self.write({'success': True, 'msg': 'Reindex complete'})
 
 
-class ApiDistroShowHandler(RequestHandler):
+class ApiDistroShowHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro):
+        self._check_token(distro or common.Cacus.admin_access)
         if distro:
             selector = {'distro': distro}
         else:
@@ -281,10 +323,11 @@ class ApiDistroShowHandler(RequestHandler):
         self.write({'success': True, 'result': result})
 
 
-class ApiDistroSnapshotHandler(JsonRequestHandler):
+class ApiDistroSnapshotHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro):
+        self._check_token(distro)
         ret = {'distro': distro, 'snapshots': []}
         snapshots = self.settings['db'].cacus.distros.find({'snapshot.origin': distro}, {'snapshot': 1, 'lastupdated': 1})
         for snapshot in (yield snapshots.to_list(None)):
@@ -297,6 +340,7 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
     def delete(self, distro):
+        self._check_token(distro)
         snapshot = self._get_json_request()['snapshot']
         try:
             msg = yield self.settings['workers'].submit(self.settings['manager'].delete_snapshot, distro=distro, name=snapshot)
@@ -308,6 +352,7 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
+        self._check_token(distro)
         req = self._get_json_request()
         snapshot_name = req['snapshot']
         from_snapshot = req.get('from', None)
@@ -321,10 +366,12 @@ class ApiDistroSnapshotHandler(JsonRequestHandler):
         self.write({'success': True, 'msg': msg})
 
 
-class ApiDistroCreateHandler(JsonRequestHandler):
+class ApiDistroCreateHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
+        self._check_token(distro)
+
         req = self._get_json_request()
         comps = req['components']
         description = req['description']
@@ -353,10 +400,11 @@ class ApiDistroCreateHandler(JsonRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
-class ApiDistroRemoveHandler(RequestHandler):
+class ApiDistroRemoveHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
+        self._check_token(distro)
         try:
             msg = yield self.settings['workers'].submit(self.settings['manager'].remove_distro, distro)
         except common.CacusError as e:
@@ -367,7 +415,7 @@ class ApiDistroRemoveHandler(RequestHandler):
 
 
 @stream_request_body
-class ApiPkgUploadHandler(RequestHandler):
+class ApiPkgUploadHandler(ApiRequestHandler):
     """Upload single package to non-strict repo.
 
     Possible implementations: nginx upload_pass (RFC 1867 multipart/form-data only)? tornado.iostream? common.ProxyStream?
@@ -410,6 +458,7 @@ class ApiPkgUploadHandler(RequestHandler):
 
     @gen.coroutine
     def put(self, distro, comp):
+        self._check_token(distro)
         try:
             distro_settings = yield self.settings['db'].cacus.distros.find_one({'distro': distro}, {'strict': 1})
             if not distro_settings:
@@ -437,10 +486,11 @@ class ApiPkgUploadHandler(RequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
-class ApiPkgCopyHandler(JsonRequestHandler):
+class ApiPkgCopyHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
+        self._check_token(distro)
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
@@ -458,10 +508,11 @@ class ApiPkgCopyHandler(JsonRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
-class ApiPkgRemoveHandler(JsonRequestHandler):
+class ApiPkgRemoveHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None, comp=None):
+        self._check_token(distro)
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
@@ -477,7 +528,7 @@ class ApiPkgRemoveHandler(JsonRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
-class ApiDistPushHandler(RequestHandler):
+class ApiDistPushHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
@@ -500,10 +551,11 @@ class ApiDistPushHandler(RequestHandler):
             self.write({'success': False, 'msg': r.msg})
 
 
-class ApiPkgSearchHandler(JsonRequestHandler):
+class ApiPkgSearchHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro=None):
+        self._check_token(distro)
         pkg = self.get_argument('pkg', None)
         ver = self.get_argument('ver', None)
         comp = self.get_argument('comp', None)
