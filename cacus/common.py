@@ -1,22 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
 import os
 import sys
 import time
 import yaml
 import uuid
 import gnupg
+import base64
 import pymongo
 import hashlib
 import requests
 import logging
 import apt_pkg
 import logging.handlers
+
+from jose import jwt
 from binascii import hexlify
 from threading import Event
 from itertools import chain, repeat
 from tornado.ioloop import IOLoop
+from ipaddress import ip_network
 
 import plugin
 
@@ -98,17 +101,12 @@ class DebVersion(object):
 
 class Cacus(object):
     default_arches = ['all', 'amd64', 'i386']
+    admin_access = '#admin'
 
     def __init__(self, config_file=None, config=None, mongo=None):
         os.environ['PATH'] += ':/usr/local/bin'
         if not config:
-            if not config_file:
-                if os.path.isfile('/etc/cacus.yml'):
-                    config_file = '/etc/cacus.yml'
-                else:
-                    config_file = '/etc/cacus-default.yml'
-            with open(config_file) as cfg:
-                self.config = yaml.load(cfg)
+            self.config = self.load_config(config_file)
         else:
             self.config = config
 
@@ -126,7 +124,6 @@ class Cacus(object):
             'debug': logging.DEBUG, 'info': logging.INFO, 'warning': logging.WARNING,
             'error': logging.ERROR, 'critical': logging.CRITICAL
         }
-        print self.config
         self._rootLogger.setLevel(levels[self.config['logging']['level']])
         for handler in handlers:
             # repo_daemon will setup own logger for his access logs,
@@ -161,6 +158,18 @@ class Cacus(object):
         # misc
         self.config['repo_daemon']['repo_base'] = self.config['repo_daemon']['repo_base'].rstrip('/')
         self.config['repo_daemon']['storage_subdir'] = self.config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
+        self.config['repo_daemon']['privileged_nets'] = [ip_network(unicode(x)) for x in self.config['repo_daemon']['privileged_nets']]
+
+    @staticmethod
+    def load_config(config_file):
+        if not config_file:
+            if os.path.isfile('/etc/cacus.yml'):
+                config_file = '/etc/cacus.yml'
+            else:
+                config_file = '/etc/cacus-default.yml'
+        with open(config_file) as cfg:
+            config = yaml.load(cfg)
+        return config
 
     def create_cacus_indexes(self):
         self.log.info("Creating indexes for cacus.distros...")
@@ -441,5 +450,18 @@ def with_retries(attempts, delays, fun, *args, **kwargs):
     return result
 
 
-__logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)s] %(name)s: %(message)s")
-__colorFormatter = _ColorFormatter("\033[0;33m%(asctime)s\033[0m \033[0;32m[%(process)d]\033[0m %(levelname)s %(name)s: %(message)s")
+def generate_token(config, subject, days, distros):
+    config = Cacus.load_config(config)
+
+    claim = {'sub': subject, 'nbf': int(time.time())}
+    claim['exp'] = claim['nbf'] + 60*60*24*days
+    if not distros:
+        claim['aud'] = Cacus.admin_access
+    else:
+        claim['aud'] = distros
+
+    return jwt.encode(claim, base64.b64decode(config['repo_daemon']['auth_secret']), algorithm='HS256')
+
+
+__logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)s] [%(user)s] %(name)s: %(message)s")
+__colorFormatter = _ColorFormatter("\033[0;33m%(asctime)s\033[0m \033[0;32m[%(process)d]\033[0m %(levelname)s \033[0;35m[%(user)s]\033[0m %(name)s: %(message)s")

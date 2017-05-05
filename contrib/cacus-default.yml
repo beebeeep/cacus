@@ -37,6 +37,8 @@ repo_daemon:
   storage_subdir: 'storage'
   proxy_storage: true
   max_body_size: 1073741824         # 1 GiB (I think it's safe to set any value, since body is streamed, not saved in memory in one piece)
+  auth_secret: DLBcyOXUuRK0VFygWDe2+iXAihV6vHVNurasw38Rc+Q=     #Generate your own using, for example, using `openssl rand 32 -base64`"
+  privileged_nets: [ '127.0.0.0/8' ]        # requests from this nets wouldn't require authorization
 
 duploader_daemon:
   incoming_root: /srv/cacus/incoming/

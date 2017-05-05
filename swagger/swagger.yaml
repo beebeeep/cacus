@@ -1,0 +1,652 @@
+swagger: '2.0'
+info:
+  title: Cacus API
+  description: Control your Debian repositories using HTTP API
+  version: "1.0"
+host: cacus.example.com
+schemes:
+  - http
+basePath: /api/v1
+produces:
+  - application/json
+  - application/octet-stream
+paths:
+  /dists/{distro}/Release:
+    get:
+      summary: Distro Release file
+      description: |
+        Release file contains meta-information about the distribution and checksums for the indices, signed with a GPG clearsign signature
+      produces: 
+        - application/octet-stream
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      tags:
+        - APT API
+      responses:
+        200:
+          description: Release file
+          schema:
+            type: file
+  "/dists/{distro}/{component}/{arch}/Packages":
+    get:
+      summary: Packages index
+      description: |
+        Release file contains meta-information about the distribution and checksums for the indices, signed with a GPG clearsign signature
+      produces: 
+        - application/octet-stream
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: component
+          in: path
+          description: Component name
+          required: true
+          type: string
+        - name: arch
+          in: path
+          description: Architecture 
+          pattern: 'binary-.*'
+          required: true
+          type: string
+      tags:
+        - APT API
+      responses:
+        200:
+          description: Pacakges file
+          schema:
+            type: file
+
+  /package/upload/{distro}/{component}:
+    put:
+      summary: Upload the package
+      description: |
+        Uploads or updates .deb package in specified distro/component. Can only be used with distros with `simple: true` setting. 
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: component
+          in: path
+          description: Component name
+          required: true
+          type: string
+      tags:
+        - Packages
+      responses:
+        201:
+          description: Package was uploaded
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro or component was not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /package/copy/{distro}:
+    post:
+      summary: Copy package from one component to another
+      description: |
+        Package can be copied between components of single distro, for example, after QA, package with new software release can be copied from `testing` to `production` component. Note that copies does not consume space in storage, so copy operation is cheap, but if you update package contents and/or metadata in one component (by reuploading it with same name and version), package will be changed in every component it belongs to.
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: copy_params
+          in: body
+          description: Copy parameters
+          schema:
+            '$ref': '#/definitions/PkgCopyParams'
+          required: true
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully copied
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro, components or package were not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /package/remove/{distro}/{component}:
+    post:
+      summary: Remove package from distro/component
+      description: |
+        Removes package of specified name and version from specific component. Note that for complex (i.e with `simple: false`) distros you can either remove whole package, or single .deb. 
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: component
+          in: path
+          description: Component name
+          required: true
+          type: string
+        - name: remove_params
+          in: body
+          description: Remove parameters
+          required: true
+          schema:
+            '$ref': '#/definitions/PkgRemoveParams'
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully removed
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro, component or package were not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /package/search/{distro}:
+    get:
+      summary: Search for package(s)
+      description: |
+        You can search packages by regexes of their name and/or version, or by full-text search in package description
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: pkg
+          in: query
+          description: Package name regex
+          required: false
+          type: string
+        - name: ver
+          in: query
+          description: Package version regex
+          required: false
+          type: string
+        - name: comp
+          in: query
+          description: Component name
+          required: false
+          type: string
+        - name: descr
+          in: query
+          description: Words/phrase to search in package description
+          required: false
+          type: string
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully removed
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro, component or package were not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+    post:
+      summary: Search for package(s)
+      description: |
+        You can search packages by regexes of their name and/or version, or by full-text search in package description
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: query
+          in: body
+          description: Search query
+          required: true
+          schema:
+            '$ref': '#/definitions/PkgSearchParams'
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully removed
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro, component or package were not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/create/{distro}:
+    post:
+      summary: Create/update distro 
+      description: |
+        Creates new distro or updates settings of existing one. If there are any duploader daemons running, they will catch up new distro within seconds and will automatically create new incoming directory for all of its components and will start watching for new packages there.
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: distro_settings
+          in: body
+          description: Distro settings
+
+          required: true
+          schema:
+            '$ref': '#/definitions/DistroSettings'
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro settings successfully updated
+          schema:
+            $ref: '#/definitions/OperationResult'
+        201:
+          description: Distro successfully created
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/show/{distro}:
+    post:
+      summary: Show information about distros 
+      description: |
+        Show information about all distros or about some specific one
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: false
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully deleted
+          schema:
+            $ref: '#/definitions/DistroShowResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/remove/{distro}:
+    post:
+      summary: Remove distro 
+      description: |
+        Removes distro. All watchers will be stopped and clean up performed. Note that distro snapshots will be also deleted as far as all files in storage.
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully deleted
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/reindex/{distro}:
+    post:
+      summary: Reindex distro
+      description: |
+        Update distro indices (Release, Packages, Sources etc).
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully reindexed
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/snapshot/{distro}:
+    get:
+      summary: List distro snapshots
+      tags:
+        - Snapshots
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      responses:
+        200:
+          description: Distro snapshots
+          schema:
+            $ref: '#/definitions/DistroSnapshots'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+    post:
+      summary: Create/update distro snapshot
+      description: |
+        Distro snapshot is the read-only copy of distro current state, including all its components and repos.
+        Snapshotting is lightweight operation which only changes metadata, so snapshots won't consume any space in storage.
+        Note that you can create snapshot from another snapshot, i.e just make its copy - that is useful for switching snapsthos.
+      tags:
+        - Snapshots
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: snapshot_params
+          in: body
+          description: Snapshotting parameters
+          required: true
+          schema:
+            '$ref': '#/definitions/DistroSnapshotParams'
+      responses:
+        200:
+          description: Snapshot was successfully created
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro or snapshot not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+    delete:
+      summary: Delete distro snapshot
+      tags:
+        - Snapshots
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: snapshot_params
+          in: body
+          description: Snapshotting parameters
+          required: true
+          schema:
+            $ref: '#/definitions/DistroSnapshotDeleteParams'
+      responses:
+        200:
+          description: Snapshot was successfully deleted
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro or snapshot not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+definitions:
+  DistroShowResult:
+    type: object
+    properties:
+      success:
+        type: boolean
+        description: whether operation was successful or not
+      result:
+        type: array
+        items:
+          type: object
+          properties:
+            distro:
+              type: string
+              description: distro name
+            description:
+              type: string
+              description: distro description
+            gpg_key:
+              type: string
+              description: custom GPG key for this distro, if any
+            lastupdated:
+              type: string
+              format: dateTime
+              description: timestamp of last update of distro
+            simple:
+              type: boolean
+              description: whether this repos support sources packages or no
+            strict:
+              type: boolean
+              description: |
+                whether duploader will accept packages only from known subjects (only for `simple: false` distros)
+            type:
+              type: string
+              description: type of distro
+              enum: 
+                - general
+                - snapshot
+                - mirror
+            origin:
+              type: string
+              description: name of snapshot's source distro
+            source:
+              type: string
+              description: URL to the source of this mirror
+            packages:
+              type: integer
+              description: number of packages in this distro
+
+  DistroSnapshots:
+    type: object
+    properties:
+      success:
+        type: boolean
+        description: whether operation was successful or not
+      result:
+        type: object
+        properties:
+          distro:
+            type: string
+            description: distro name
+          snapshots:
+            type: array
+            description: array of distro snapshots
+            items:
+              type: object
+              properties:
+                created:
+                  type: string
+                  format: dateTeim
+                  description: timestamp of snapshot
+                snapshot:
+                  type: string
+                  description: snapshot name
+
+  DistroSnapshotDeleteParams:
+    type: object
+    properties:
+      snapshot_name:
+        type: string
+        description: Snapshot name
+      required:
+        - snapshot_name
+
+  DistroSnapshotParams:
+    type: object
+    properties:
+      snapshot_name:
+        type: string
+        description: Snapshot name
+      from_snapshot: 
+        type: string
+        description: Name of snapshot to make copy of
+      required:
+        - snapshot_name
+
+  DistroSettings:
+    type: object
+    properties:
+      comps:
+        type: array
+        description: List of distro components
+      description:
+        type: string
+        description: Distro description
+      simple:
+        type: string
+        description: | 
+          Distros with `simple: true` will accept only single binary .deb packages, while distros with `simple: false` will provide full support of source packages and indices. Simple repos are a bit faster with uploading packages via duploader daemon. 
+      retention:
+        type: integer
+        description: Distro retention policy. How many versions of same package will be kept in distro. Note that old packages will be removed only from distro indices, not from storage.
+        default: 0
+      gpg_key:
+        type: string
+        description: GPG key to use for signing distro Release file. If omitted, default one (from config) will be used.
+    required:
+      - comps
+      - simple
+
+  PkgCopyParams:
+    type: object
+    properties:
+      pkg:
+        type: string
+        description: Package name
+      ver:
+        type: string
+        description: Package version
+      arch:
+        type: string
+        description: Package architecture
+      from:
+        type: string
+        description: Name of source component
+      to:
+        type: string
+        description: Name of destination component
+    required:
+      - pkg
+      - ver
+      - from
+      - to
+      
+  PkgRemoveParams:
+    type: object
+    properties:
+      pkg:
+        type: string
+        description: Package name
+      ver:
+        type: string
+        description: Package version
+      arch:
+        type: string
+        description: Package architecture
+      source_pkg:
+        type: boolean
+        description: Remove whole source package
+    required:
+      - pkg
+      - ver
+      
+  PkgSearchParams:
+    type: object
+    properties:
+      pkg:
+        description: Package name regex
+        type: string
+      ver:
+        description: Package version regex
+        type: string
+      comp:
+        description: Component name
+        type: string
+      descr:
+        description: Words/phrase to search in package description
+        type: string
+        
+  OperationResult:
+    type: object
+    properties:
+      success:
+        type: boolean
+        description: whether operation was successful or not
+      msg:
+        type: string
+        description: Additional information

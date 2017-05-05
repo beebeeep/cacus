@@ -10,6 +10,14 @@ import traceback
 # TODO feel free to PR if you know how to log tracebacks in more elegant way
 # atm it for some reason doubles traceback string
 class MyLogger(logging.getLoggerClass()):
+    user = None
+
+    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
+        if not extra:
+            extra = {}
+        extra['user'] = self.user or 'N/A'
+        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
+
     def error(self, msg, *args, **kwargs):
         if sys.exc_info()[0]:
             msg = str(msg) + "\n{}".format(traceback.format_exc().replace('%', '%%'))
@@ -22,6 +30,7 @@ class MyLogger(logging.getLoggerClass()):
 
 logging.setLoggerClass(MyLogger)
 
+import common
 import repo_manage
 import repo_daemon
 import duploader
@@ -42,8 +51,13 @@ def main():
     op_type.add_argument('--create-indexes', action='store_true', help='Create MongoDB indexes')
     op_type.add_argument('--duploader-daemon', action='store_true', help='Start duploader daemon')
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
+    op_type.add_argument('--gen-token', type=str, metavar='NAME',
+                         help='Generate JWT token for NAME')
     op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
     op_type.add_argument('--import-distro', type=str, nargs=2, metavar=('URL', 'NAME'), help='Import distribution')
+
+    parser.add_argument('-e', '--expire', type=int, help='Expiration period for JWT token')
+    parser.add_argument('-d', '--distro', type=str, nargs='*', help='Distros that will be manageable by this JWT token. If omitted, token will have root access.')
     """
     op_type.add_argument('--upload', action='store_true', help='Upload package(s)')
     op_type.add_argument('--remove', action='store_true', help='Remove package(s)')
@@ -72,6 +86,14 @@ def main():
         manager = repo_manage.RepoManager(config_file=args.config)
         manager.create_cacus_indexes()
         manager.create_packages_indexes()
+    elif args.gen_token:
+        if not args.expire:
+            parser.error("Specify expiration period in days")
+
+        token = common.generate_token(args.config, args.gen_token, args.expire, args.distro)
+        print "Generated token for '{}' with {}; valid for {} days:\n{}".format(
+            args.gen_token, 'access to distros: ' + ', '.join(args.distro) if args.distro else 'ROOT access',
+            args.expire, token)
     else:
         # default action is to start both duploader daemon and repo daemon
         from multiprocessing import Process

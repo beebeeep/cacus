@@ -1,3 +1,6 @@
+## [Version 0.7.6](https://github.com/beebeeep/cacus/tree/v0.7.6) (2017-05-05)
+  * Added API authentication and authorization
+
 ## [Version 0.7.5](https://github.com/beebeeep/cacus/tree/v0.7.5) (2017-04-19)
   * Added `max_body_size` setting to `repo_daemon``` config
 
