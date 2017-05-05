@@ -35,7 +35,19 @@ Also you will need MongoDB running somewhere, and storage:
 - Ceph (http://ceph.com) - planned
 - Any other - feel free to contribute your storage plugin
 
-Human-friendly ways (debian package, docker image etc) pending
+Also you can just build docker image using supplied Dockerfile, note that it has build argument `STORAGE` for selecting storage plugin (currently, only `azure` and `file` are supported). For example, to build and start container (with mounted /var/lib/cacus, where you should put config file `config.yml`, gpg homedir and where will be the duploader incoming dirs):
+```sh
+docker build -t cacus:0.7.5 --build-arg STORAGE=azure .
+docker run -v /var/lib/cacus:/cacus -d --name cacus-repo -p 8088:1488 --restart always cacus:0.7.5
+```
+
+Also, there are packages for Debian Jessie:
+```sh
+curl https://cacus.miga.me.uk/cacus.asc | sudo apt-key add -
+sudo sh -c 'echo "deb http://cacus.miga.me.uk/debian cacus-jessie unstable" > /etc/apt/sources.list.d/cacus.list'
+sudo apt-get update
+sudo apt-get install python-cacus python-cacus-{azure,file}-storage
+```
 
 Configuration & environment
 ---------------------------
@@ -55,7 +67,7 @@ Start repository HTTP daemon (APT and REST APIs):
 cacus --config /path/to/cacus.yaml --repo-daemon
 ```
 
-REST API documentation pending, some examples:
+REST API documentation can be found [here](https://cacus.miga.me.uk/docs/), some examples:
 ```shell
 # Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo/[unstable, testing, main]
 curl -X POST -H 'Content-Type: application/json' -vks \
