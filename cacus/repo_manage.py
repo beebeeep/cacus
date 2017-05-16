@@ -320,7 +320,7 @@ class RepoManager(common.Cacus):
                     self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
 
                     if not skipUpdateMeta:
-                        if len(affected_arches) == 1 and 'all' in affected_arches:
+                        if 'all' in affected_arches:
                             affected_arches = None      # update all arches in case of "all" arch package
                         self.update_distro_metadata(distro, components_to_update, affected_arches)
             except common.DistroLockTimeout as e:
@@ -536,6 +536,8 @@ class RepoManager(common.Cacus):
                     msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
                     self.log.info(msg)
                     if not skipUpdateMeta:
+                        if 'all' in affected_arches:
+                            affected_arches = None      # update all arches in case we have 'all' arch in scope
                         self.log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
                         self.update_distro_metadata(distro, [comp], affected_arches)
                     return msg
@@ -592,6 +594,8 @@ class RepoManager(common.Cacus):
                 self.log.info(msg)
 
                 if not skipUpdateMeta:
+                    if 'all' in affected_arches:
+                        affected_arches = None      # update all arches in case we have 'all' arch in scope
                     self.log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, affected_arches)
                     self.update_distro_metadata(distro, [src, dst], affected_arches)
                 return msg
