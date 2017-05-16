@@ -1,3 +1,6 @@
+## [Version 0.7.7](https://github.com/beebeeep/cacus/tree/v0.7.7) (2017-05-16)
+  * Fixed #13 - update all indices while dealing with "all" architecture
+
 ## [Version 0.7.6](https://github.com/beebeeep/cacus/tree/v0.7.6) (2017-05-05)
   * Added API authentication and authorization
 

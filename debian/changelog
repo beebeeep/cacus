@@ -1,3 +1,9 @@
+cacus (0.7.7) unstable; urgency=medium
+
+  * Fixed #13 - update all indices while dealing with "all" architecture
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Tue, 16 May 2017 09:28:30 +0000
+
 cacus (0.7.6) unstable; urgency=medium
 
   * Added API authentication and authorization

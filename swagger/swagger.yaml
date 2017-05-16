@@ -303,7 +303,7 @@ paths:
             $ref: '#/definitions/OperationResult'
 
   /distro/show/{distro}:
-    post:
+    get:
       summary: Show information about distros 
       description: |
         Show information about all distros or about some specific one
