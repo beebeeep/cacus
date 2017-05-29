@@ -115,7 +115,8 @@ class ApiRequestHandler(RequestHandler):
                 claim = jwt.decode(token, secret, audience=aud)
             except jwt.JWTClaimsError as e:
                 if 'Invalid audience' in e:
-                    claim = jwt.decode(token, config['repo_daemon']['auth_secret'], audience=common.Cacus.admin_access)
+                    claim = jwt.decode(token, secret, audience=common.Cacus.admin_access)
+
         except Exception as e:
             self.set_status(401)
             self.write({'success': False, 'msg': str(e)})
@@ -404,7 +405,11 @@ class ApiDistroRemoveHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
-        self._check_token(distro)
+        if self.settings['config']['repo_daemon']['restrict_dangerous_operations']:
+            aud = common.Cacus.admin_access
+        else:
+            aud = distro
+        self._check_token(aud)
         try:
             msg = yield self.settings['workers'].submit(self.settings['manager'].remove_distro, distro)
         except common.CacusError as e:
