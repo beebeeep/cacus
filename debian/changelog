@@ -1,3 +1,10 @@
+cacus (0.7.8) unstable; urgency=medium
+
+  * Fixed bug with root token processing
+  * Added "restrict_dangerous_operations" option to repo daemon settings
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 29 May 2017 13:46:22 +0000
+
 cacus (0.7.7) unstable; urgency=medium
 
   * Fixed #13 - update all indices while dealing with "all" architecture

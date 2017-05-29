@@ -1,3 +1,7 @@
+## [Version 0.7.8](https://github.com/beebeeep/cacus/tree/v0.7.8) (2017-05-29)
+  * Fixed bug with root token processing
+  * Added `restrict_dangerous_operations` option to repo daemon settings
+
 ## [Version 0.7.7](https://github.com/beebeeep/cacus/tree/v0.7.7) (2017-05-16)
   * Fixed #13 - update all indices while dealing with "all" architecture
 
@@ -5,7 +9,7 @@
   * Added API authentication and authorization
 
 ## [Version 0.7.5](https://github.com/beebeeep/cacus/tree/v0.7.5) (2017-04-19)
-  * Added `max_body_size` setting to `repo_daemon``` config
+  * Added `max_body_size` setting to `repo_daemon` config
 
 ## [Version 0.7.4](https://github.com/beebeeep/cacus/tree/v0.7.4) (2017-04-11)
   * Snapshotting from another snapshot
