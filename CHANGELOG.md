@@ -1,3 +1,6 @@
+## [Version 0.7.9](https://github.com/beebeeep/cacus/tree/v0.7.9) (2017-05-30)
+  * Distro is now optional in api/v1/package/search/
+
 ## [Version 0.7.8](https://github.com/beebeeep/cacus/tree/v0.7.8) (2017-05-29)
   * Fixed bug with root token processing
   * Added `restrict_dangerous_operations` option to repo daemon settings
