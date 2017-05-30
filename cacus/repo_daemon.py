@@ -608,16 +608,27 @@ class ApiPkgSearchHandler(ApiRequestHandler):
         }
 
         result = {}
-        pkgs = []
-        cursor = db.packages[distro].find(selector, projection)
-        while (yield cursor.fetch_next):
-            pkg = cursor.next_object()
-            if pkg:
-                p = dict((k.lower(), v) for k, v in pkg.iteritems())
-                for k, v in pkg['meta'].iteritems():
-                    p[k.lower()] = v
-                del p['meta']
-                pkgs.append(p)
+        pkgs = {}
+
+        if distro:
+            distros = [distro]
+        else:
+            cursor = db.cacus.distros.find({},{'distro': 1}).to_list(None)
+            distros = (x['distro'] for x in (yield cursor))
+
+        for d in distros:
+            pkgs[d] = []
+            cursor = db.packages[d].find(selector, projection)
+            while (yield cursor.fetch_next):
+                pkg = cursor.next_object()
+                app_log.debug("pkgs: %s\npkg: %s", pkgs, pkg)
+                if pkg:
+                    p = dict((k.lower(), v) for k, v in pkg.iteritems())
+                    for k, v in pkg['meta'].iteritems():
+                        p[k.lower()] = v
+                    del p['meta']
+                    pkgs[d].append(p)
+
         if not pkgs:
             self.set_status(404)
             result = {'success': False, 'result': []}
@@ -642,7 +653,7 @@ def _make_app(config):
     api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
-    api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)?$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
