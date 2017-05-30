@@ -25,7 +25,7 @@ setup(
                       'python-apt',
                       'chardet',
                       'ipaddress',
-                      'jose'
+                      'python-jose'
                       ],
     tests_require=['pytest'],
     entry_points={
