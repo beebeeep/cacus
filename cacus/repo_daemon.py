@@ -613,9 +613,8 @@ class ApiPkgSearchHandler(ApiRequestHandler):
         if distro:
             distros = [distro]
         else:
-            cursor = db.cacus.distros.find({},{'distro': 1}).to_list(None)
+            cursor = db.cacus.distros.find({}, {'distro': 1}).to_list(None)
             distros = (x['distro'] for x in (yield cursor))
-
         for d in distros:
             pkgs[d] = []
             cursor = db.packages[d].find(selector, projection)
@@ -629,11 +628,7 @@ class ApiPkgSearchHandler(ApiRequestHandler):
                     del p['meta']
                     pkgs[d].append(p)
 
-        if not pkgs:
-            self.set_status(404)
-            result = {'success': False, 'result': []}
-        else:
-            result = {'success': True, 'result': pkgs}
+        result = {'success': True, 'result': pkgs}
         self.write(result)
 
 
@@ -653,7 +648,7 @@ def _make_app(config):
     api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
-    api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search/(?P<distro>[-_.A-Za-z0-9]+)?$"
+    api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search(?:/(?P<distro>[-_.A-Za-z0-9]+))?$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
