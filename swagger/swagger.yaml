@@ -178,6 +178,74 @@ paths:
           schema:
             $ref: '#/definitions/OperationResult'
 
+  /package/search:
+    get:
+      summary: Search for package(s) in all distros
+      description: |
+        You can search packages by regexes of their name and/or version, or by full-text search in package description
+      parameters:
+        - name: pkg
+          in: query
+          description: Package name regex
+          required: false
+          type: string
+        - name: ver
+          in: query
+          description: Package version regex
+          required: false
+          type: string
+        - name: comp
+          in: query
+          description: Component name
+          required: false
+          type: string
+        - name: descr
+          in: query
+          description: Words/phrase to search in package description
+          required: false
+          type: string
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully removed
+          schema:
+            $ref: '#/definitions/SearchResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+    post:
+      summary: Search for package(s) in all distros
+      description: |
+        You can search packages by regexes of their name and/or version, or by full-text search in package description
+      parameters:
+        - name: query
+          in: body
+          description: Search query
+          required: true
+          schema:
+            '$ref': '#/definitions/PkgSearchParams'
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully removed
+          schema:
+            $ref: '#/definitions/SearchResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
   /package/search/{distro}:
     get:
       summary: Search for package(s)
@@ -187,7 +255,7 @@ paths:
         - name: distro
           in: path
           description: Distribution name
-          required: false
+          required: true
           type: string
         - name: pkg
           in: query
@@ -215,13 +283,9 @@ paths:
         200:
           description: Package successfully removed
           schema:
-            $ref: '#/definitions/OperationResult'
+            $ref: '#/definitions/SearchResult'
         400:
           description: Bad request arguments
-          schema:
-            $ref: '#/definitions/OperationResult'
-        404:
-          description: Distro, component or package were not found
           schema:
             $ref: '#/definitions/OperationResult'
         409:
@@ -236,7 +300,7 @@ paths:
         - name: distro
           in: path
           description: Distribution name
-          required: false
+          required: true
           type: string
         - name: query
           in: body
@@ -250,13 +314,9 @@ paths:
         200:
           description: Package successfully removed
           schema:
-            $ref: '#/definitions/OperationResult'
+            $ref: '#/definitions/SearchResult'
         400:
           description: Bad request arguments
-          schema:
-            $ref: '#/definitions/OperationResult'
-        404:
-          description: Distro, component or package were not found
           schema:
             $ref: '#/definitions/OperationResult'
         409:
@@ -302,22 +362,39 @@ paths:
           schema:
             $ref: '#/definitions/OperationResult'
 
+  /distro/show:
+    get:
+      summary: Show information about all distros 
+      description: |
+        Show information about all distros
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro information
+          schema:
+            $ref: '#/definitions/DistroShowResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+
   /distro/show/{distro}:
     get:
-      summary: Show information about distros 
+      summary: Show information about distro
       description: |
-        Show information about all distros or about some specific one
+        Show information about specific distro
       parameters:
         - name: distro
           in: path
           description: Distribution name
-          required: false
+          required: true
           type: string
       tags:
         - Distros
       responses:
         200:
-          description: Distro was successfully deleted
+          description: Distro information
           schema:
             $ref: '#/definitions/DistroShowResult'
         404:
@@ -543,8 +620,8 @@ definitions:
       snapshot_name:
         type: string
         description: Snapshot name
-      required:
-        - snapshot_name
+    required:
+      - snapshot_name
 
   DistroSnapshotParams:
     type: object
@@ -555,8 +632,8 @@ definitions:
       from_snapshot: 
         type: string
         description: Name of snapshot to make copy of
-      required:
-        - snapshot_name
+    required:
+      - snapshot_name
 
   DistroSettings:
     type: object
@@ -650,3 +727,41 @@ definitions:
       msg:
         type: string
         description: Additional information
+
+  SearchResult:
+    type: object
+    properties:
+      success:
+        type: boolean
+        description: whether operation was successful or not
+      result:
+        type: object
+        description: Distro name
+        additionalProperties:
+            type: array
+            description: Array of packages matching query
+            items:
+              type: object
+              properties:
+                package:
+                  type: string
+                  description: Package name
+                version:
+                  type: string
+                  description: Package version
+                architecture:
+                  type: string
+                  description: Package architecture
+                components: 
+                  type: array
+                  description: List of components having package
+                  items:
+                    type: string
+                description: 
+                  type: string
+                  description: Package description
+                maintainer: 
+                  type: string
+                  description: Package maintainer
+
+

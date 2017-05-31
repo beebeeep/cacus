@@ -1,3 +1,9 @@
+cacus (0.7.9-1) unstable; urgency=medium
+
+  * Fixed api paths
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Wed, 31 May 2017 07:38:23 +0000
+
 cacus (0.7.9) unstable; urgency=medium
 
   * Distro is now optional in api/v1/package/search/
