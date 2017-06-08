@@ -1,3 +1,9 @@
+cacus (0.7.10) unstable; urgency=medium
+
+  * Specified algorithm for JWT token decoding
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Thu, 08 Jun 2017 13:20:41 +0000
+
 cacus (0.7.9-1) unstable; urgency=medium
 
   * Fixed api paths

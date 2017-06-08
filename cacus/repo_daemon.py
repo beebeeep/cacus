@@ -112,10 +112,10 @@ class ApiRequestHandler(RequestHandler):
             if scheme != 'Bearer':
                 raise Exception("Use Bearer authorization scheme")
             try:
-                claim = jwt.decode(token, secret, audience=aud)
+                claim = jwt.decode(token, secret, audience=aud, algorithms='HS256')
             except jwt.JWTClaimsError as e:
                 if 'Invalid audience' in e:
-                    claim = jwt.decode(token, secret, audience=common.Cacus.admin_access)
+                    claim = jwt.decode(token, secret, audience=common.Cacus.admin_access, algorithms='HS256')
 
         except Exception as e:
             self.set_status(401)
