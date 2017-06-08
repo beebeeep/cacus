@@ -1,3 +1,6 @@
+## [Version 0.7.10](https://github.com/beebeeep/cacus/tree/v0.7.10) (2017-06-08)
+  * JWT token handling improved
+
 ## [Version 0.7.9](https://github.com/beebeeep/cacus/tree/v0.7.9) (2017-05-30)
   * Distro is now optional in api/v1/package/search/
 
