@@ -1,3 +1,8 @@
+## [Version 0.7.11](https://github.com/beebeeep/cacus/tree/v0.7.11) (2017-06-27)
+  * Fixed missing token check at /package/search endpoint
+  * Added list of components to /distro/show
+  * Removed old API endpoint
+
 ## [Version 0.7.10](https://github.com/beebeeep/cacus/tree/v0.7.10) (2017-06-08)
   * JWT token handling improved
 
