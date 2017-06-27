@@ -309,17 +309,19 @@ class ApiDistroShowHandler(ApiRequestHandler):
         cursor = self.settings['db'].cacus.distros.find(selector, {'release_file': 0, 'release_gpg': 0})
         while (yield cursor.fetch_next):
             d = cursor.next_object()
+            c = self.settings['db'].cacus.components.find({'distro': d['distro']}, {'component': 1}).to_list(None)
+            components = [x['component'] for x in (yield c)]
             pkg_count = yield self.settings['db'].packages[d['distro']].count({})
             if 'imported' in d:
                 result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
-                               'type': 'mirror', 'source': d['imported']['from']})
+                               'type': 'mirror', 'source': d['imported']['from'], 'components': components})
             elif 'snapshot' in d:
                 result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
-                               'type': 'snapshot', 'origin': d['snapshot']['origin']})
+                               'type': 'snapshot', 'origin': d['snapshot']['origin'], 'components': components})
             else:
                 result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
                                'type': 'general', 'simple': d.get('simple', True), 'strict': d.get('strict', True),
-                               'gpg_key': d.get('gpg_key', None) or self.settings['config']['gpg']['sign_key']})
+                               'gpg_key': d.get('gpg_key', None) or self.settings['config']['gpg']['sign_key'], 'components': components})
 
         self.write({'success': True, 'result': result})
 
@@ -533,29 +535,6 @@ class ApiPkgRemoveHandler(ApiRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
-class ApiDistPushHandler(ApiRequestHandler):
-
-    @gen.coroutine
-    def post(self, distro=None):
-        changes_file = self.get_argument('file')
-
-        if distro in self.settings['config']['duploader_daemon']['distributions']:
-            self.write({'success': True, 'msg': 'Submitted package import job'})
-        else:
-            self.set_status(404)
-            self.write({'success': False, 'msg': "Repo {} is not configured".format(distro)})
-
-        r = yield self.settings['workers'].submit(self.settings['manager'].dist_push, distro=distro, changes=changes_file)
-        if r.ok:
-            self.write({'success': True, 'msg': r.msg})
-        elif r.status == 'NOT_FOUND':
-            self.set_status(404)
-            self.write({'success': False, 'msg': r.msg})
-        else:
-            self.set_status(500)
-            self.write({'success': False, 'msg': r.msg})
-
-
 class ApiPkgSearchHandler(ApiRequestHandler):
 
     @gen.coroutine
@@ -570,6 +549,7 @@ class ApiPkgSearchHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
+        self._check_token(distro)
         req = self._get_json_request()
         pkg = req.get('pkg', None)
         ver = req.get('ver', None)
@@ -655,8 +635,6 @@ def _make_app(config):
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_show_re = s['repo_base'] + r"/api/v1/distro/show(?:/(?P<distro>[-_.A-Za-z0-9/]+))?$"
-    # Misc/unknown/obsolete
-    api_dist_push_re = s['repo_base'] + r"/api/v1/dist-push/(?P<distro>[-_.A-Za-z0-9]+)$"
 
     return Application([
         url(packages_re, PackagesHandler),
@@ -674,7 +652,6 @@ def _make_app(config):
         url(api_distro_reindex_re, ApiDistroReindexHandler),
         url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
         url(api_distro_show_re, ApiDistroShowHandler),
-        url(api_dist_push_re, ApiDistPushHandler),
         ])
 
 
