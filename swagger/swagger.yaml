@@ -554,6 +554,11 @@ definitions:
             distro:
               type: string
               description: distro name
+            components:
+              type: array
+              description: array of components of this distro
+              items:
+                type: string
             description:
               type: string
               description: distro description
@@ -738,30 +743,33 @@ definitions:
         type: object
         description: Distro name
         additionalProperties:
-            type: array
-            description: Array of packages matching query
-            items:
-              type: object
-              properties:
-                package:
-                  type: string
-                  description: Package name
-                version:
-                  type: string
-                  description: Package version
-                architecture:
-                  type: string
-                  description: Package architecture
-                components: 
-                  type: array
-                  description: List of components having package
-                  items:
-                    type: string
-                description: 
-                  type: string
-                  description: Package description
-                maintainer: 
-                  type: string
-                  description: Package maintainer
+          $ref: '#/definitions/PackageSearchResult'
+
+  PackageSearchResult:
+    type: array
+    description: Array of packages matching query
+    items:
+      type: object
+      properties:
+        package:
+          type: string
+          description: Package name
+        version:
+          type: string
+          description: Package version
+        architecture:
+          type: string
+          description: Package architecture
+        components: 
+          type: array
+          description: List of components having package
+          items:
+            type: string
+        description: 
+          type: string
+          description: Package description
+        maintainer: 
+          type: string
+          description: Package maintainer
 
 

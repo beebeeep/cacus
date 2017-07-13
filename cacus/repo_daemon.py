@@ -95,6 +95,7 @@ class ApiRequestHandler(RequestHandler):
 
         return JsonRequestData(self, req)
 
+    @gen.coroutine
     def _check_token(self, aud):
         config = self.settings['manager'].config
 
@@ -102,7 +103,7 @@ class ApiRequestHandler(RequestHandler):
         for net in config['repo_daemon']['privileged_nets']:
             if ip in net:
                 # no auth required
-                return {}
+                raise gen.Return({})
 
         try:
             secret = base64.b64decode(config['repo_daemon']['auth_secret'])
@@ -116,6 +117,12 @@ class ApiRequestHandler(RequestHandler):
             except jwt.JWTClaimsError as e:
                 if 'Invalid audience' in e:
                     claim = jwt.decode(token, secret, audience=common.Cacus.admin_access, algorithms='HS256')
+            if 'jti' in claim:
+                # check for revoked tokens
+                doc = yield self.settings['db'].cacus.revoked_tokens.find_one({'jti': claim['jti']})
+                if doc and doc['revoked']:
+                    raise Exception("Token blacklisted")
+
 
         except Exception as e:
             self.set_status(401)
@@ -125,7 +132,7 @@ class ApiRequestHandler(RequestHandler):
         app_log.user = claim['sub']
         access_log.user = claim['sub']
         self.settings['manager'].log.user = claim['sub']
-        return claim
+        raise gen.Return(claim)
 
     def on_finish(self):
         app_log.user = None
@@ -285,7 +292,7 @@ class ApiDistroReindexHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
-        self._check_token(distro)
+        yield self._check_token(distro)
         try:
             yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro)
         except common.NotFound as e:
@@ -299,7 +306,7 @@ class ApiDistroShowHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro):
-        self._check_token(distro or common.Cacus.admin_access)
+        yield self._check_token(distro or common.Cacus.admin_access)
         if distro:
             selector = {'distro': distro}
         else:
@@ -330,7 +337,7 @@ class ApiDistroSnapshotHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro):
-        self._check_token(distro)
+        yield self._check_token(distro)
         ret = {'distro': distro, 'snapshots': []}
         snapshots = self.settings['db'].cacus.distros.find({'snapshot.origin': distro}, {'snapshot': 1, 'lastupdated': 1})
         for snapshot in (yield snapshots.to_list(None)):
@@ -343,7 +350,7 @@ class ApiDistroSnapshotHandler(ApiRequestHandler):
 
     @gen.coroutine
     def delete(self, distro):
-        self._check_token(distro)
+        yield self._check_token(distro)
         snapshot = self._get_json_request()['snapshot']
         try:
             msg = yield self.settings['workers'].submit(self.settings['manager'].delete_snapshot, distro=distro, name=snapshot)
@@ -355,7 +362,7 @@ class ApiDistroSnapshotHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
-        self._check_token(distro)
+        yield self._check_token(distro)
         req = self._get_json_request()
         snapshot_name = req['snapshot']
         from_snapshot = req.get('from', None)
@@ -373,7 +380,7 @@ class ApiDistroCreateHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro):
-        self._check_token(distro)
+        yield self._check_token(distro)
 
         req = self._get_json_request()
         comps = req['components']
@@ -411,7 +418,7 @@ class ApiDistroRemoveHandler(ApiRequestHandler):
             aud = common.Cacus.admin_access
         else:
             aud = distro
-        self._check_token(aud)
+        yield self._check_token(aud)
         try:
             msg = yield self.settings['workers'].submit(self.settings['manager'].remove_distro, distro)
         except common.CacusError as e:
@@ -465,7 +472,7 @@ class ApiPkgUploadHandler(ApiRequestHandler):
 
     @gen.coroutine
     def put(self, distro, comp):
-        self._check_token(distro)
+        yield self._check_token(distro)
         try:
             distro_settings = yield self.settings['db'].cacus.distros.find_one({'distro': distro}, {'strict': 1})
             if not distro_settings:
@@ -497,7 +504,7 @@ class ApiPkgCopyHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
-        self._check_token(distro)
+        yield self._check_token(distro)
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
@@ -519,7 +526,7 @@ class ApiPkgRemoveHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None, comp=None):
-        self._check_token(distro)
+        yield self._check_token(distro)
         req = self._get_json_request()
         pkg = req['pkg']
         ver = req['ver']
@@ -539,7 +546,7 @@ class ApiPkgSearchHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro=None):
-        self._check_token(distro)
+        yield self._check_token(distro)
         pkg = self.get_argument('pkg', None)
         ver = self.get_argument('ver', None)
         comp = self.get_argument('comp', None)
@@ -549,7 +556,7 @@ class ApiPkgSearchHandler(ApiRequestHandler):
 
     @gen.coroutine
     def post(self, distro=None):
-        self._check_token(distro)
+        yield self._check_token(distro)
         req = self._get_json_request()
         pkg = req.get('pkg', None)
         ver = req.get('ver', None)

@@ -15,11 +15,13 @@ import apt_pkg
 import logging.handlers
 
 from jose import jwt
+from datetime import datetime
 from binascii import hexlify
 from threading import Event
 from itertools import chain, repeat
 from tornado.ioloop import IOLoop
 from ipaddress import ip_network
+from pymongo.collection import ReturnDocument
 
 import plugin
 
@@ -197,6 +199,9 @@ class Cacus(object):
             unique=True)
         self.db.cacus.locks.create_index('modified', expireAfterSeconds=self.config['lock_cleanup_timeout'])
 
+        self.log.info("Creating indexes for cacus.access_tokens...")
+        self.db.cacus.access_tokens.create_index('jti', unique=True)
+
     def create_packages_indexes(self, distros=None):
         if not distros:
             distros = self.db.packages.collection_names()
@@ -219,6 +224,36 @@ class Cacus(object):
                  ('Version', pymongo.DESCENDING)],
                 unique=True)
             self.db.sources[distro].create_index('components')
+
+    def generate_token(self, subject, days, distros):
+        claim = {'sub': subject, 'jti': uuid.uuid4().hex, 'nbf': int(time.time())}
+        claim['exp'] = claim['nbf'] + 60*60*24*days
+        if not distros:
+            claim['aud'] = Cacus.admin_access
+        else:
+            claim['aud'] = distros
+
+        doc = {'revoked': False}
+        doc.update(claim)
+        self.db.cacus.access_tokens.insert(doc)
+
+        return jwt.encode(claim, base64.b64decode(self.config['repo_daemon']['auth_secret']), algorithm='HS256')
+
+    def revoke_token(self, jti):
+        old = self.db.cacus.access_tokens.find_one_and_update(
+            {'jti': jti},
+            {'$set': {'revoked': True}},
+            upsert=False, return_document=ReturnDocument.BEFORE)
+        return old is not None
+
+    def print_tokens(self):
+        for doc in self.db.cacus.access_tokens.find():
+            if doc['aud'] == Cacus.admin_access:
+                doc['aud'] = 'ROOT'
+            else:
+                doc['aud'] = ', '.join(doc['aud'])
+            print("ID: {jti}; subject: {sub}; access: {aud}; expires: {expires}; revoked: {revoked}".format(
+                expires=datetime.utcfromtimestamp(doc['nbf']).strftime("%F %T UTC"), **doc))
 
     @staticmethod
     def get_hashes(file=None, filename=None):
@@ -448,19 +483,6 @@ def with_retries(attempts, delays, fun, *args, **kwargs):
     else:
         raise exc
     return result
-
-
-def generate_token(config, subject, days, distros):
-    config = Cacus.load_config(config)
-
-    claim = {'sub': subject, 'nbf': int(time.time())}
-    claim['exp'] = claim['nbf'] + 60*60*24*days
-    if not distros:
-        claim['aud'] = Cacus.admin_access
-    else:
-        claim['aud'] = distros
-
-    return jwt.encode(claim, base64.b64decode(config['repo_daemon']['auth_secret']), algorithm='HS256')
 
 
 __logFormatter = logging.Formatter("%(asctime)s [%(process)d] [%(levelname)s] [%(user)s] %(name)s: %(message)s")
