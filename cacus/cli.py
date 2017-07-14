@@ -53,6 +53,12 @@ def main():
     op_type.add_argument('--repo-daemon', action='store_true', help='Start repository daemon')
     op_type.add_argument('--gen-token', type=str, metavar='NAME',
                          help='Generate JWT token for NAME')
+    op_type.add_argument('--revoke-token', type=str, metavar='JTI',
+                         help='Revoke JWT token with jti=JTI')
+    op_type.add_argument('--list-tokens', action='store_true',
+                         help='List known JWT tokens')
+    op_type.add_argument('--get-token', type=str, metavar='JTI',
+                         help='Get token by ID')
     op_type.add_argument('--update-distro', metavar='DISTRO', nargs='?', help='Update distribution metadata')
     op_type.add_argument('--import-distro', type=str, nargs=2, metavar=('URL', 'NAME'), help='Import distribution')
 
@@ -90,10 +96,23 @@ def main():
         if not args.expire:
             parser.error("Specify expiration period in days")
 
-        token = common.generate_token(args.config, args.gen_token, args.expire, args.distro)
+        manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
+        token = manager.generate_token(args.gen_token, args.expire, args.distro)
         print "Generated token for '{}' with {}; valid for {} days:\n{}".format(
             args.gen_token, 'access to distros: ' + ', '.join(args.distro) if args.distro else 'ROOT access',
             args.expire, token)
+    elif args.revoke_token:
+        manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
+        if manager.revoke_token(args.revoke_token):
+            print("Revoked token with jti={}".format(args.revoke_token))
+        else:
+            print("Cannot find token with jti={}".format(args.revoke_token))
+    elif args.list_tokens:
+        manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
+        manager.print_tokens()
+    elif args.get_token:
+        manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
+        print manager.get_token(args.get_token)
     else:
         # default action is to start both duploader daemon and repo daemon
         from multiprocessing import Process

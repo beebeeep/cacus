@@ -1,3 +1,10 @@
+cacus (0.7.12) unstable; urgency=medium
+
+  * Added token storing & revocation
+  * Create DB indexes for new distro's collections
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Fri, 14 Jul 2017 08:55:11 +0000
+
 cacus (0.7.11) unstable; urgency=medium
 
   * Fixed missing token check at /package/search endpoint

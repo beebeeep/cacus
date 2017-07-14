@@ -45,6 +45,7 @@ class RepoManager(common.Cacus):
 
         # even empty distro deserves to have proper Release file and Package&Sources indices
         self.update_distro_metadata(distro)
+        self.create_packages_indexes(distros=[distro])
 
         return old_distro
 
