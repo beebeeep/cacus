@@ -119,7 +119,7 @@ class ApiRequestHandler(RequestHandler):
                     claim = jwt.decode(token, secret, audience=common.Cacus.admin_access, algorithms='HS256')
             if 'jti' in claim:
                 # check for revoked tokens
-                doc = yield self.settings['db'].cacus.revoked_tokens.find_one({'jti': claim['jti']})
+                doc = yield self.settings['db'].cacus.access_tokens.find_one({'jti': claim['jti']})
                 if doc and doc['revoked']:
                     raise Exception("Token blacklisted")
 

@@ -105,7 +105,7 @@ class Cacus(object):
     default_arches = ['all', 'amd64', 'i386']
     admin_access = '#admin'
 
-    def __init__(self, config_file=None, config=None, mongo=None):
+    def __init__(self, config_file=None, config=None, mongo=None, quiet=False):
         os.environ['PATH'] += ':/usr/local/bin'
         if not config:
             self.config = self.load_config(config_file)
@@ -113,6 +113,7 @@ class Cacus(object):
             self.config = config
 
         # logging
+        logging.captureWarnings(True)
         handlers = _setup_log_handlers(self.config['logging']['app'])
 
         class __AccessLogFilter(logging.Filter):
@@ -126,7 +127,13 @@ class Cacus(object):
             'debug': logging.DEBUG, 'info': logging.INFO, 'warning': logging.WARNING,
             'error': logging.ERROR, 'critical': logging.CRITICAL
         }
-        self._rootLogger.setLevel(levels[self.config['logging']['level']])
+
+        if quiet:
+            level = logging.CRITICAL
+        else:
+            level = levels[self.config['logging']['level']]
+
+        self._rootLogger.setLevel(level)
         for handler in handlers:
             # repo_daemon will setup own logger for his access logs,
             # so filter out 'tornado.access' entries from app log
@@ -201,6 +208,8 @@ class Cacus(object):
 
         self.log.info("Creating indexes for cacus.access_tokens...")
         self.db.cacus.access_tokens.create_index('jti', unique=True)
+        # remove expired tokens from DB
+        self.db.cacus.access_tokens.create_index('exp', expireAfterSeconds=300)
 
     def create_packages_indexes(self, distros=None):
         if not distros:
@@ -233,11 +242,12 @@ class Cacus(object):
         else:
             claim['aud'] = distros
 
-        doc = {'revoked': False}
-        doc.update(claim)
+        token = jwt.encode(claim, base64.b64decode(self.config['repo_daemon']['auth_secret']), algorithm='HS256')
+        doc = {'revoked': False, 'exp': datetime.utcfromtimestamp(claim['exp']),
+               'jti': claim['jti'], 'sub': claim['sub'], 'aud': claim['aud'], 'token': token}
         self.db.cacus.access_tokens.insert(doc)
 
-        return jwt.encode(claim, base64.b64decode(self.config['repo_daemon']['auth_secret']), algorithm='HS256')
+        return token
 
     def revoke_token(self, jti):
         old = self.db.cacus.access_tokens.find_one_and_update(
@@ -246,14 +256,21 @@ class Cacus(object):
             upsert=False, return_document=ReturnDocument.BEFORE)
         return old is not None
 
+    def get_token(self, jti):
+        doc = self.db.cacus.access_tokens.find_one({'jti': jti})
+        if doc:
+            return doc['token']
+        else:
+            return 'Token not found'
+
     def print_tokens(self):
         for doc in self.db.cacus.access_tokens.find():
             if doc['aud'] == Cacus.admin_access:
                 doc['aud'] = 'ROOT'
             else:
                 doc['aud'] = ', '.join(doc['aud'])
-            print("ID: {jti}; subject: {sub}; access: {aud}; expires: {expires}; revoked: {revoked}".format(
-                expires=datetime.utcfromtimestamp(doc['nbf']).strftime("%F %T UTC"), **doc))
+            print("ID: {jti}; subject: {sub}; access: {aud}; expires: {exp}; revoked: {revoked}".format(
+                expires=doc['exp'].strftime("%F %T UTC"), **doc))
 
     @staticmethod
     def get_hashes(file=None, filename=None):

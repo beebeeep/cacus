@@ -1,3 +1,7 @@
+## [Version 0.7.12](https://github.com/beebeeep/cacus/tree/v0.7.12) (2017-07-14)
+  * Added token storing & revocation
+  * Create DB indexes for new distro's collections
+
 ## [Version 0.7.11](https://github.com/beebeeep/cacus/tree/v0.7.11) (2017-06-27)
   * Fixed missing token check at /package/search endpoint
   * Added list of components to /distro/show
