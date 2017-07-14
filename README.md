@@ -67,7 +67,9 @@ Start repository HTTP daemon (APT and REST APIs):
 cacus --config /path/to/cacus.yaml --repo-daemon
 ```
 
-REST API documentation can be found [here](https://cacus.miga.me.uk/docs/), some examples:
+For day to day repo management, there is a convenient CLI tool [caca](https://github.com/beebeeep/caca), you really should try it unless you are eager to fiddle with curl and raw REST API. 
+
+REST API documentation can be found [here](https://cacus.miga.me.uk/docs/), here are some examples:
 ```shell
 # Create distribution "test-repo", duploader daemon will start listening for incoming files at /src/cacus/incoming/test-repo/[unstable, testing, main]
 curl -X POST -H 'Content-Type: application/json' -vks \
