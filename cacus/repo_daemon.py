@@ -122,6 +122,9 @@ class ApiRequestHandler(RequestHandler):
                 doc = yield self.settings['db'].cacus.access_tokens.find_one({'jti': claim['jti']})
                 if doc and doc['revoked']:
                     raise Exception("Token blacklisted")
+            else:
+                if self.settings['manager'].config['repo_daemon'].get('reject_old_tokens', True):
+                    raise Exception("Old token format, please renew")
 
 
         except Exception as e:

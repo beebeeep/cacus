@@ -1,3 +1,6 @@
+## [Version 0.7.13](https://github.com/beebeeep/cacus/tree/v0.7.13) (2017-07-17)
+  * Reject old tokens by default
+
 ## [Version 0.7.12](https://github.com/beebeeep/cacus/tree/v0.7.12) (2017-07-14)
   * Added token storing & revocation
   * Create DB indexes for new distro's collections
