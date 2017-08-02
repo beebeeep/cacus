@@ -45,7 +45,7 @@ class DistroImporter(repo_manage.RepoManager):
             arches = set(['amd64', 'i386', 'all'])
 
         release_url = self._urljoin(base_url, 'dists', distro, 'Release')
-        release_filename = common.download_file(release_url)
+        release_filename = self.download_file(release_url)
         packages = 0
         errors = []
 
@@ -54,12 +54,12 @@ class DistroImporter(repo_manage.RepoManager):
                 release = deb822.Release(f)
 
             # since we don't know list of components in distro, lock distro on some fake component name
-            with common.DistroLock(distro, ['__cacusimport']):
+            with common.DistroLock(self.db, distro, ['__cacusimport']):
                 # remove all packages imported - we will recreate distro collection from scratch
                 # note that this does not affect APT API of distro - indices are still in place i
                 # and will be updated once we finish import
                 self.db.packages[distro].drop()
-                common.create_packages_indexes([distro])
+                self.create_packages_indexes([distro])
 
                 # TODO add LZMA (.xz) support. Appears that debian.deb822 can handle .gz automagically, but barely supports .xz
                 packages_re = re.compile("(?P<comp>[-_a-zA-Z0-9]+)\/(?P<arch>binary-(?:{}))\/Packages.(?P<ext>[g]z)".format("|".join(arches)))
@@ -77,7 +77,7 @@ class DistroImporter(repo_manage.RepoManager):
                                                           {'$set': meta},
                                                           upsert=True)
 
-            repo_manage.update_distro_metadata(distro, components, arches)
+            self.update_distro_metadata(distro, components, arches)
         finally:
             try:
                 os.unlink(release_filename)
@@ -87,7 +87,7 @@ class DistroImporter(repo_manage.RepoManager):
 
     def import_repo(self, base_url, distro, ext, comp, arch, sha256):
         packages_url = self._urljoin(base_url, 'dists', distro, comp, arch, 'Packages.' + ext)
-        packages_filename = common.download_file(packages_url, sha256=binascii.unhexlify(sha256))
+        packages_filename = self.download_file(packages_url, sha256=binascii.unhexlify(sha256))
         pkgs = 0
         errs = []
         try:
