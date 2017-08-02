@@ -26,7 +26,18 @@ app_log = logging.getLogger('tornado.application')
 gen_log = logging.getLogger('tornado.general')
 
 
-class CachedRequestHandler(RequestHandler):
+class CacusRequestHandler(RequestHandler):
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Headers", "x-requested-with, authorization, content-type, accept")
+        self.set_header('Access-Control-Allow-Methods', 'POST, PUT, GET, OPTIONS')
+
+    def options(self, *args, **kwargs):
+        self.set_status(204)
+        self.finish()
+
+
+class CachedRequestHandler(CacusRequestHandler):
 
     def prepare(self):
         pass
@@ -62,7 +73,7 @@ class CachedRequestHandler(RequestHandler):
 
 
 # TODO JSON schema?
-class ApiRequestHandler(RequestHandler):
+class ApiRequestHandler(CacusRequestHandler):
     """ Provides JSON body processing and authentication/authorization using JWT """
 
     def _get_json_request(self):
@@ -143,7 +154,7 @@ class ApiRequestHandler(RequestHandler):
         self.settings['manager'].log.user = None
 
 
-class StorageHandler(RequestHandler):
+class StorageHandler(CacusRequestHandler):
 
     def on_connection_close(self):
         self.dead = True
@@ -169,7 +180,7 @@ class StorageHandler(RequestHandler):
         yield self.stream_from_storage(key)
 
 
-class ExtStorageHandler(RequestHandler):
+class ExtStorageHandler(CacusRequestHandler):
     """ Redirects to external location.
     APT should support redirects since version 0.7.21 (see https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=79002)
     """
@@ -610,7 +621,6 @@ class ApiPkgSearchHandler(ApiRequestHandler):
             cursor = db.packages[d].find(selector, projection)
             while (yield cursor.fetch_next):
                 pkg = cursor.next_object()
-                app_log.debug("pkgs: %s\npkg: %s", pkgs, pkg)
                 if pkg:
                     p = dict((k.lower(), v) for k, v in pkg.iteritems())
                     for k, v in pkg['meta'].iteritems():

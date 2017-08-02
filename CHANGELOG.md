@@ -1,3 +1,7 @@
+## [Version 0.7.14](https://github.com/beebeeep/cacus/tree/v0.7.14) (2017-08-02)
+  * Fixed distro import
+  * Added CORS stuff
+
 ## [Version 0.7.13](https://github.com/beebeeep/cacus/tree/v0.7.13) (2017-07-17)
   * Reject old tokens by default
 
