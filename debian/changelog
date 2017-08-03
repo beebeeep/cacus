@@ -1,3 +1,9 @@
+cacus (0.7.15) unstable; urgency=medium
+
+  * api/v1/distro/show now shows all distros available for authenticated user
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Thu, 03 Aug 2017 10:51:33 +0000
+
 cacus (0.7.14) unstable; urgency=medium
 
   * Fixed distro import

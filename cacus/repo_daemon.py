@@ -323,6 +323,8 @@ class ApiDistroShowHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro):
+        # a bit tricky auth check here. If distro is not specified, return all distros token has access to
+        # (i.e all distros in case of privileged net or admin token)
         claim = yield self._check_token(distro)
         if distro:
             if (claim['aud'] == common.Cacus.admin_access or 'privileged' in claim or distro in claim['aud']):
