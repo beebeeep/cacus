@@ -1,3 +1,6 @@
+## [Version 0.7.15](https://github.com/beebeeep/cacus/tree/v0.7.15) (2017-08-03)
+  * api/v1/distro/show now shows all distros available for authenticated user
+
 ## [Version 0.7.14](https://github.com/beebeeep/cacus/tree/v0.7.14) (2017-08-02)
   * Fixed distro import
   * Added CORS stuff

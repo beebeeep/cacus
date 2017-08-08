@@ -114,7 +114,7 @@ class ApiRequestHandler(CacusRequestHandler):
         for net in config['repo_daemon']['privileged_nets']:
             if ip in net:
                 # no auth required
-                raise gen.Return({})
+                raise gen.Return({'privileged': True})
 
         try:
             secret = base64.b64decode(config['repo_daemon']['auth_secret'])
@@ -124,7 +124,10 @@ class ApiRequestHandler(CacusRequestHandler):
             if scheme != 'Bearer':
                 raise Exception("Use Bearer authorization scheme")
             try:
-                claim = jwt.decode(token, secret, audience=aud, algorithms='HS256')
+                if aud is not None:
+                    claim = jwt.decode(token, secret, audience=aud, algorithms='HS256')
+                else:
+                    claim = jwt.decode(token, secret, algorithms='HS256', options={'verify_aud': False})
             except jwt.JWTClaimsError as e:
                 if 'Invalid audience' in e:
                     claim = jwt.decode(token, secret, audience=common.Cacus.admin_access, algorithms='HS256')
@@ -320,11 +323,21 @@ class ApiDistroShowHandler(ApiRequestHandler):
 
     @gen.coroutine
     def get(self, distro):
-        yield self._check_token(distro or common.Cacus.admin_access)
+        # a bit tricky auth check here. If distro is not specified, return all distros token has access to
+        # (i.e all distros in case of privileged net or admin token)
+        claim = yield self._check_token(distro)
         if distro:
-            selector = {'distro': distro}
+            if (claim['aud'] == common.Cacus.admin_access or 'privileged' in claim or distro in claim['aud']):
+                selector = {'distro': distro}
+            else:
+                self.set_status(401)
+                self.write({'success': False, 'msg': 'Access denied'})
+                return
         else:
-            selector = {}
+            if 'privileged' in claim or claim['aud'] == common.Cacus.admin_access:
+                selector = {}
+            else:
+                selector = {'distro': {'$in': claim['aud']}}
 
         result = []
         cursor = self.settings['db'].cacus.distros.find(selector, {'release_file': 0, 'release_gpg': 0})
