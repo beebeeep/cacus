@@ -1,3 +1,6 @@
+## [Version 0.7.16](https://github.com/beebeeep/cacus/tree/v0.7.16) (2017-08-15)
+  * fixed error handling in /api/v1/package/remove
+
 ## [Version 0.7.15](https://github.com/beebeeep/cacus/tree/v0.7.15) (2017-08-03)
   * api/v1/distro/show now shows all distros available for authenticated user
 
