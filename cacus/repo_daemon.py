@@ -565,7 +565,7 @@ class ApiPkgRemoveHandler(ApiRequestHandler):
                                                       pkg=pkg, ver=ver, arch=arch, comp=comp, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
-            self.set_status(e.code)
+            self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
 
 
