@@ -17,7 +17,7 @@ def package(request):
     class Packager(object):
         tmp_dirs = []
 
-        def get(self, version):
+        def get(self, version, min_size=100):
             tmp_dir = tempfile.mkdtemp('_cacustestpkg')
             pkg_dir = os.path.join(tmp_dir, 'testpackage-{}'.format(version))
             tpl_path = os.path.join(os.path.dirname(__file__), 'contrib/testpackage')
@@ -25,6 +25,8 @@ def package(request):
             self.tmp_dirs.append(tmp_dir)
 
             os.chdir(pkg_dir)
+            with open('data', 'w') as f:
+                f.write('x'*min_size)
             with open('debian/changelog', 'w') as f:
                 ch = changelog.Changelog()
                 ch.new_block(package='testpackage', version=changelog.Version(version), distributions='unstable',
@@ -53,7 +55,7 @@ def package(request):
 
     p = Packager()
     yield p
-    #p.cleanup()
+    p.cleanup()
 
 
 @pytest.fixture(scope='session')

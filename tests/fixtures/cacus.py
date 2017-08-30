@@ -22,22 +22,25 @@ mongo = factories.mongodb('mongo_proc')
 
 
 @pytest.fixture
-def distro(repo_manager):
-    repo_manager.create_distro('testdistro', 'description',
-                               components=['comp1', 'comp2'],
-                               gpg_check=False, strict=False, simple=True,
-                               incoming_wait_timeout=10, retention=2)
-    return {'distro': 'testdistro', 'components': ['comp1', 'comp2']}
+def distro_gen(repo_manager):
 
+    class Generator(object):
+        def get(self, name='testdistro', description='desription', components=['comp1', 'comp2'], gpg_check=False,
+                strict=False, simple=True, incoming_wait_timeout=10, retention=2, quota=None):
+            repo_manager.create_distro(name, description, components=components, gpg_check=gpg_check,
+                                       strict=strict, simple=simple, retention=retention,
+                                       incoming_wait_timeout=incoming_wait_timeout, quota=quota)
+            return {'distro': name, 'components': components}
+
+    return Generator()
 
 @pytest.fixture
-def full_distro(repo_manager):
-    repo_manager.create_distro('testdistro_full', 'description',
-                               components=['comp1', 'comp2'],
-                               gpg_check=False, strict=True, simple=False,
-                               incoming_wait_timeout=10)
-    return {'distro': 'testdistro_full', 'components': ['comp1', 'comp2']}
+def distro(distro_gen):
+    return distro_gen.get()
 
+@pytest.fixture
+def full_distro(distro_gen):
+    return distro_gen.get(simple=False, strict=True)
 
 @pytest.yield_fixture(scope='session')
 def storage():
