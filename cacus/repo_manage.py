@@ -16,15 +16,21 @@ import common
 
 class RepoManager(common.Cacus):
 
-    def create_distro(self, distro, description, components,  simple, strict=None,
+    def create_distro(self, distro, description, components,  simple, strict=None, quota=None,
                       gpg_check=None, incoming_wait_timeout=None, retention=None, gpg_key=None):
         if gpg_key and not self._check_key(gpg_key):
             raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
-            {'$set': {
-                'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention,
-                'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key}},
+            {
+                '$set': {
+                    'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
+                    'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
+                },
+                '$inc': {
+                    'quota_used': 0
+                }
+            },
             return_document=ReturnDocument.BEFORE,
             upsert=True)
         self.log.info("%s distro '%s', simple: %s, components: %s", "Updated" if old_distro else "Created", distro, simple, ', '.join(components))
@@ -255,6 +261,18 @@ class RepoManager(common.Cacus):
             skipUpdateMeta - whether to update distro metadata
         """
 
+        distro_settings = self.db.cacus.distros.find_one({'distro': distro}, {'distro': 1, 'strict': 1, 'quota': 1, 'quota_used': 1})
+        incoming_bytes = 0
+        if not distro_settings:
+            raise common.NotFound("Distribution '{}' was not found".format(distro))
+
+        if distro_settings['strict'] and not any(x.endswith('.changes') for x in files):
+            raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
+        if distro_settings['quota'] is not None:
+            incoming_bytes = sum(os.stat(file).st_size for file in files)
+            if incoming_bytes > distro_settings['quota'] - distro_settings['quota_used']:
+                raise common.FatalError("Quota exceeded for distro '{distro}': you are using {quota_used} bytes of {quota}".format(**distro_settings))
+
         src_pkg = {}
         debs = []
         affected_arches = set()
@@ -317,6 +335,14 @@ class RepoManager(common.Cacus):
                             return_document=ReturnDocument.AFTER,
                             upsert=True)
                         components_to_update.update(result['components'])
+
+                    if distro_settings['quota'] is not None:
+                        distro_settings = self.db.cacus.distros.find_one_and_update(
+                            {'distro': distro},
+                            {'$inc': {'quota_used': incoming_bytes}},
+                            return_document=ReturnDocument.AFTER,
+                            upsert=False)
+                        self.log.info("Updated quotas for distro %s: used %s out of %s", distro, distro_settings['quota_used'], distro_settings['quota'])
 
                     self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
 
