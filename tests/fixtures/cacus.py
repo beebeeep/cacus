@@ -80,7 +80,9 @@ def cacus_config(request, storage):
 def repo_manager(request, cacus_config, mongo):
 
     repo_manage = importlib.import_module('cacus.repo_manage')
-    return repo_manage.RepoManager(config=cacus_config, mongo=mongo)
+    manager = repo_manage.RepoManager(config=cacus_config, mongo=mongo)
+    manager.common = importlib.import_module('cacus.common')
+    return manager
 
 
 @pytest.yield_fixture

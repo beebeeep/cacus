@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 
+import pytest
+
+import cacus
 from fixtures.cacus import *
 from fixtures.packages import *
 
@@ -102,6 +105,21 @@ def test_create_update_snapshot(distro, repo_manager, package):
     repo_manager.create_snapshot(distro['distro'], 'snap1')
     assert package_is_in_repo(repo_manager, pkg2, snap1, comp)
     assert not package_is_in_repo(repo_manager, pkg2, snap2, comp)
+
+
+def test_distro_quotas(distro_gen, repo_manager, package):
+
+    distro = distro_gen.get(quota=4096)
+    comp = distro['components'][0]
+    deb1 = package.get('0.1', deadweight=2048)
+    deb2 = package.get('0.2', deadweight=102400)
+
+    pkg1 = repo_manager.upload_package(distro['distro'], comp, [deb1['debfile']], changes=None)[0]
+    assert package_is_in_repo(repo_manager, pkg1, distro['distro'], comp)
+    distro_settings = repo_manager.db.cacus.distros.find_one({'distro': distro['distro']})
+    assert distro_settings['quota_used'] == deb1['debsize']
+    with pytest.raises(repo_manager.common.FatalError):
+        repo_manager.upload_package(distro['distro'], comp, [deb2['debfile']], changes=None)
 
 
 def test_delete_snapshot(distro, repo_manager):
