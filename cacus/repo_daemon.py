@@ -584,12 +584,14 @@ class ApiPkgPurgeHandler(ApiRequestHandler):
         pkg = req['pkg']
         ver = req['ver']
         arch = req.get('arch', None)
-        source_pkg = req.get('source_pkg', False)
 
-        app_log.warning("Purging %s_%s_%s from %s (source: %s)", pkg, ver, arch or '*', distro, source_pkg)
-
-        self.set_status(501)
-        self.write({'success': False, 'msg': 'Package purging is not yet implemented'})
+        try:
+            r = yield self.settings['workers'].submit(self.settings['manager'].purge_package, distro=distro,
+                                                      pkg=pkg, ver=ver, arch=arch)
+            self.write({'success': True, 'msg': r})
+        except common.CacusError as e:
+            self.set_status(e.http_code)
+            self.write({'success': False, 'msg': e.message})
 
 
 class ApiPkgSearchHandler(ApiRequestHandler):

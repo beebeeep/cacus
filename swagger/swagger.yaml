@@ -657,6 +657,10 @@ definitions:
         type: integer
         description: Distro retention policy. How many versions of same package will be kept in distro. Note that old packages will be removed only from distro indices, not from storage.
         default: 0
+      quota:
+        type: integer
+        default: null
+        description: Quota for uploaded packages size, in bytes. Setting this variable require token with admin access. Missing value means no quotas. 
       gpg_key:
         type: string
         description: GPG key to use for signing distro Release file. If omitted, default one (from config) will be used.

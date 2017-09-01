@@ -5,12 +5,23 @@ import os
 import signal
 import shutil
 import tempfile
+import logging
 import gnupg
 from multiprocessing import Process
 from debian import deb822
 
 import pytest
 from pytest_mongo import factories
+
+class MyLogger(logging.getLoggerClass()):
+    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
+        if not extra:
+            extra = {}
+        extra['user'] = 'Test'
+        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
+
+logging.setLoggerClass(MyLogger)
+
 
 for f in ['/usr/bin/mongod', '/usr/local/bin/mongod']:
     if os.path.isfile(f):
@@ -95,7 +106,12 @@ def duploader(request, cacus_config, mongo):
     os.kill(duploader_process.pid, signal.SIGTERM)
 
 
-def package_is_in_repo(manager, package, distro, component):
+def package_is_in_repo(manager, package, distro, component, meta=True):
+    if meta:
+        metadata = manager.db.packages[distro].find_one({'Package': package['Package'], 'Version': package['Version']})
+        if not metadata:
+            return False
+
     packages = manager.db.cacus.repos.find_one({
         'distro': distro, 'component': component, 'architecture': package['Architecture']})['packages_file']
     with open(os.path.join(manager.config['storage']['path'], packages)) as f:

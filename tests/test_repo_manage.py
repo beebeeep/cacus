@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import os
+
 import pytest
 
 import cacus
@@ -70,6 +72,14 @@ def test_copy_remove_package(distro, repo_manager, deb_pkg):
     repo_manager.remove_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], dst)
     assert not package_is_in_repo(repo_manager, deb, distro['distro'], dst)
 
+def test_purge_package(distro, repo_manager, deb_pkg):
+    comp = distro['components'][0]
+    deb = repo_manager.upload_package(distro['distro'], comp, [deb_pkg['debfile']], None)[0]
+    assert package_is_in_repo(repo_manager, deb, distro['distro'], comp)
+    repo_manager.purge_package(pkg=deb['Package'], ver=deb['Version'], distro=distro['distro'])
+    assert not package_is_in_repo(repo_manager, deb, distro['distro'], comp)
+    assert not os.path.isfile(os.path.join(repo_manager.config['storage']['path'], deb['storage_key']))
+
 
 def test_create_update_snapshot(distro, repo_manager, package):
 
@@ -98,13 +108,13 @@ def test_create_update_snapshot(distro, repo_manager, package):
 
     pkg1 = repo_manager.upload_package(distro['distro'], comp, [deb1['debfile']], changes=None)[0]
     repo_manager.create_snapshot(distro['distro'], 'snap1')
-    assert package_is_in_repo(repo_manager, pkg1, snap1, comp)
+    assert package_is_in_repo(repo_manager, pkg1, snap1, comp, meta=False)
 
     repo_manager.create_snapshot(distro['distro'], 'snap2', from_snapshot='snap1')
     pkg2 = repo_manager.upload_package(distro['distro'], comp, [deb2['debfile']], changes=None)[0]
     repo_manager.create_snapshot(distro['distro'], 'snap1')
-    assert package_is_in_repo(repo_manager, pkg2, snap1, comp)
-    assert not package_is_in_repo(repo_manager, pkg2, snap2, comp)
+    assert package_is_in_repo(repo_manager, pkg2, snap1, comp, meta=False)
+    assert not package_is_in_repo(repo_manager, pkg2, snap2, comp, meta=False)
 
 
 def test_distro_quotas(distro_gen, repo_manager, package):

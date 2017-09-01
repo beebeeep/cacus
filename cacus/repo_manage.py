@@ -524,6 +524,10 @@ class RepoManager(common.Cacus):
         return data
 
     def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False, locked=False):
+        """ Removes package from specified distro/component """
+
+        self.log.info("Removing %s_%s from %s/%s", pkg, ver, distro, comp)
+
         affected_arches = []
         try:
             with common.DistroLock(self.db, distro, [comp], already_locked=locked):
@@ -570,6 +574,54 @@ class RepoManager(common.Cacus):
                     return msg
         except common.DistroLockTimeout as e:
             raise common.TemporaryError(e.message)
+
+    def purge_package(self, pkg=None,  ver=None, arch=None, distro=None, skipUpdateMeta=False, locked=False):
+        """ Removes package from all components and wipes it (all sources, debs etc) from storage
+        XXX: note that purging package may break existing distro snapshots!
+        """
+
+        self.log.info("Purging %s_%s from distro %s", pkg, ver, distro)
+
+        affected_arches = set()
+        affected_comps = set()
+        try:
+            with common.DistroLock(self.db, distro, comps=None, already_locked=locked):
+                result = self.db.sources[distro].find_one_and_delete({'Package': pkg, 'Version': ver})
+                if result:
+                    # found source package matching query, remove this package, its non-deb files and all debs it consists of
+                    for f in result['files']:
+                        self.storage.delete(f['storage_key'])
+                    source = result['_id']
+                    while True:
+                        result = self.db.packages[distro].find_one_and_delete({'source': source})
+                        if result:
+                            affected_arches.add(result['Architecture'])
+                            affected_comps.update(result['components'])
+                            self.storage.delete(result['storage_key'])
+                        else:
+                            break
+                else:
+                    # try to find in packages db
+                    selector = {'Package': pkg, 'Version': ver}
+                    if arch:
+                        selector['Architecture'] = arch
+
+                    result = self.db.packages[distro].find_one_and_delete(selector)
+                    if result:
+                        affected_arches.update(result['Architecture'])
+                        affected_comps.update(result['components'])
+                        self.storage.delete(result['storage_key'])
+                    else:
+                        raise common.NotFound("Package not found")
+
+                if not skipUpdateMeta:
+                    if 'all' in affected_arches:
+                        affected_arches = None      # update all arches in case we have 'all' arch in scope
+                    self.update_distro_metadata(distro, affected_comps, affected_arches)
+        except common.DistroLockTimeout as e:
+            raise common.TemporaryError(e.message)
+
+        return "Package {}_{} was removed from {}".format(pkg, ver, distro)
 
     def copy_package(self, pkg=None, ver=None, arch=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
         affected_arches = []
@@ -683,7 +735,6 @@ class RepoManager(common.Cacus):
 
         if from_snapshot:
             distro = self._get_snapshot_name(distro, from_snapshot)
-
 
         existing = self.db.cacus.distros.find_one({'distro': snapshot_name})
         if existing:
