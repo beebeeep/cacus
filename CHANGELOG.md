@@ -1,3 +1,7 @@
+## [Version 0.7.18](https://github.com/beebeeep/cacus/tree/v0.7.17) (2017-09-04)
+  * Added optional file name for api/v1/package/upload
+  * Fixed uploading to non-existent components
+
 ## [Version 0.7.17](https://github.com/beebeeep/cacus/tree/v0.7.17) (2017-09-04)
   * Added package purging
   * Purge old packages

@@ -1,3 +1,10 @@
+cacus (0.7.18) unstable; urgency=medium
+
+  * Added optional file name for api/v1/package/upload
+  * Fixed uploading to non-existent components
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 04 Sep 2017 20:18:33 +0000
+
 cacus (0.7.17) unstable; urgency=medium
 
   * Added package purging
