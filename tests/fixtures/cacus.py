@@ -5,23 +5,12 @@ import os
 import signal
 import shutil
 import tempfile
-import logging
 import gnupg
 from multiprocessing import Process
 from debian import deb822
 
 import pytest
 from pytest_mongo import factories
-
-class MyLogger(logging.getLoggerClass()):
-    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
-        if not extra:
-            extra = {}
-        extra['user'] = 'Test'
-        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
-
-logging.setLoggerClass(MyLogger)
-
 
 for f in ['/usr/bin/mongod', '/usr/local/bin/mongod']:
     if os.path.isfile(f):

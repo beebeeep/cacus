@@ -141,11 +141,11 @@ class RepoManager(common.Cacus):
         for source in sources_to_delete:
             self.log.warn("Removing %s_%s from %s/%s due to retention policy", source['Package'], source['Version'], distro, comp)
             self.remove_package(pkg=source['Package'], ver=source['Version'], distro=distro, comp=comp,
-                                source_pkg=True, skipUpdateMeta=skipUpdateMeta, locked=True)
+                                source_pkg=True, skipUpdateMeta=skipUpdateMeta, locked=True, purge=True)
         for deb in debs_to_delete:
             self.log.warn("Removing %s_%s_%s from %s/%s due to retention policy", deb['Package'], deb['Version'], deb['Architecture'], distro, comp)
             self.remove_package(pkg=deb['Package'], ver=deb['Version'], distro=distro, comp=comp,
-                                source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True)
+                                source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True, purge=True)
 
     def _process_deb_file(self, file):
         with open(file) as f:
@@ -523,7 +523,7 @@ class RepoManager(common.Cacus):
         data.write("\n")
         return data
 
-    def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False, locked=False):
+    def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, purge=False, skipUpdateMeta=False, locked=False):
         """ Removes package from specified distro/component """
 
         self.log.info("Removing %s_%s from %s/%s", pkg, ver, distro, comp)
@@ -536,9 +536,8 @@ class RepoManager(common.Cacus):
                     result = self.db.sources[distro].find_one_and_update(
                         {'Package': pkg, 'Version': ver, 'components': comp},
                         {'$pullAll': {'components': [comp]}},
-                        projection={'Architecture': 1},
                         upsert=False,
-                        return_document=ReturnDocument.BEFORE
+                        return_document=ReturnDocument.AFTER
                     )
                     if result:
                         binaries = self.db.packages[distro].update_many(
@@ -554,24 +553,27 @@ class RepoManager(common.Cacus):
                     result = self.db.packages[distro].find_one_and_update(
                         {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': comp},
                         {'$pullAll': {'components': [comp]}},
-                        projection={'Architecture': 1},
                         upsert=False,
-                        return_document=ReturnDocument.BEFORE
+                        return_document=ReturnDocument.AFTER
                     )
                     affected_arches = [result['Architecture']] if result else []
                 if not result:
                     msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, comp)
                     self.log.error(msg)
                     raise common.NotFound(msg)
-                else:
-                    msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
-                    self.log.info(msg)
-                    if not skipUpdateMeta:
-                        if 'all' in affected_arches:
-                            affected_arches = None      # update all arches in case we have 'all' arch in scope
-                        self.log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
-                        self.update_distro_metadata(distro, [comp], affected_arches)
-                    return msg
+
+                msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
+                self.log.info(msg)
+
+                if purge and result['components'] == []:
+                    self.purge_package(pkg=result['Package'], ver=result['Version'], distro=distro, skipUpdateMeta=True, locked=True)
+
+                if not skipUpdateMeta:
+                    if 'all' in affected_arches:
+                        affected_arches = None      # update all arches in case we have 'all' arch in scope
+                    self.log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
+                    self.update_distro_metadata(distro, [comp], affected_arches)
+                return msg
         except common.DistroLockTimeout as e:
             raise common.TemporaryError(e.message)
 

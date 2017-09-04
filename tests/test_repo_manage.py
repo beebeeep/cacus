@@ -1,10 +1,19 @@
 #!/usr/bin/env python
 
 import os
+import logging
+
+class MyLogger(logging.getLoggerClass()):
+    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
+        if not extra:
+            extra = {}
+        extra['user'] = 'Test'
+        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
+
+logging.setLoggerClass(MyLogger)
 
 import pytest
 
-import cacus
 from fixtures.cacus import *
 from fixtures.packages import *
 
@@ -60,7 +69,10 @@ def test_upload_and_retention_policy(distro, repo_manager, package):
             assert package_is_in_repo(repo_manager, pkg, distro['distro'], comp)
 
     # check if ver 0.1 was deleted from distro due to retention policy
-    assert not package_is_in_repo(repo_manager, uploaded[0][0], distro['distro'], comp)
+    deleted = uploaded[0][0]
+
+    assert not package_is_in_repo(repo_manager, deleted, distro['distro'], comp)
+    assert not os.path.isfile(os.path.join(repo_manager.config['storage']['path'], deleted['storage_key']))
 
 
 def test_copy_remove_package(distro, repo_manager, deb_pkg):
