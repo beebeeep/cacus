@@ -504,7 +504,10 @@ class ApiPkgUploadHandler(ApiRequestHandler):
         self._file.flush()
 
     @gen.coroutine
-    def put(self, distro, comp):
+    def put(self, distro, comp, name=None):
+        """ Handle file upload.
+        NB name parameter is not used and added for compatibility
+        """
         yield self._check_token(distro)
         try:
             distro_settings = yield self.settings['db'].cacus.distros.find_one({'distro': distro}, {'strict': 1})
@@ -683,7 +686,7 @@ def _make_app(config):
 
     # REST API
     # Package operations
-    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
+    api_pkg_upload_re = s['repo_base'] + r"/api/v1/package/upload/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)(?:/(?P<name>.+))?$"
     api_pkg_copy_re = s['repo_base'] + r"/api/v1/package/copy/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_pkg_remove_re = s['repo_base'] + r"/api/v1/package/remove/(?P<distro>[-_.A-Za-z0-9]+)/(?P<comp>[-_a-z0-9]+)$"
     api_pkg_purge_re = s['repo_base'] + r"/api/v1/package/purge/(?P<distro>[-_.A-Za-z0-9]+)$"
