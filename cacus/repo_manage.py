@@ -261,10 +261,13 @@ class RepoManager(common.Cacus):
             skipUpdateMeta - whether to update distro metadata
         """
 
-        distro_settings = self.db.cacus.distros.find_one({'distro': distro}, {'distro': 1, 'strict': 1, 'quota': 1, 'quota_used': 1})
+        distro_settings = self.db.cacus.distros.find_one({'distro': distro})
+        distro_component = self.db.cacus.components.find_one({'distro': distro, 'component': comp})
         incoming_bytes = 0
         if not distro_settings:
             raise common.NotFound("Distribution '{}' was not found".format(distro))
+        if not distro_component:
+            raise common.NotFound("Component '{}' of distribution '{}' was not found".format(comp, distro))
 
         if distro_settings['strict'] and not any(x.endswith('.changes') for x in files):
             raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
