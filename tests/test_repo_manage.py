@@ -1,5 +1,19 @@
 #!/usr/bin/env python
 
+import os
+import logging
+
+class MyLogger(logging.getLoggerClass()):
+    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
+        if not extra:
+            extra = {}
+        extra['user'] = 'Test'
+        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
+
+logging.setLoggerClass(MyLogger)
+
+import pytest
+
 from fixtures.cacus import *
 from fixtures.packages import *
 
@@ -55,7 +69,10 @@ def test_upload_and_retention_policy(distro, repo_manager, package):
             assert package_is_in_repo(repo_manager, pkg, distro['distro'], comp)
 
     # check if ver 0.1 was deleted from distro due to retention policy
-    assert not package_is_in_repo(repo_manager, uploaded[0][0], distro['distro'], comp)
+    deleted = uploaded[0][0]
+
+    assert not package_is_in_repo(repo_manager, deleted, distro['distro'], comp)
+    assert not os.path.isfile(os.path.join(repo_manager.config['storage']['path'], deleted['storage_key']))
 
 
 def test_copy_remove_package(distro, repo_manager, deb_pkg):
@@ -66,6 +83,14 @@ def test_copy_remove_package(distro, repo_manager, deb_pkg):
     assert package_is_in_repo(repo_manager, deb, distro['distro'], dst)
     repo_manager.remove_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], dst)
     assert not package_is_in_repo(repo_manager, deb, distro['distro'], dst)
+
+def test_purge_package(distro, repo_manager, deb_pkg):
+    comp = distro['components'][0]
+    deb = repo_manager.upload_package(distro['distro'], comp, [deb_pkg['debfile']], None)[0]
+    assert package_is_in_repo(repo_manager, deb, distro['distro'], comp)
+    repo_manager.purge_package(pkg=deb['Package'], ver=deb['Version'], distro=distro['distro'])
+    assert not package_is_in_repo(repo_manager, deb, distro['distro'], comp)
+    assert not os.path.isfile(os.path.join(repo_manager.config['storage']['path'], deb['storage_key']))
 
 
 def test_create_update_snapshot(distro, repo_manager, package):
@@ -95,13 +120,28 @@ def test_create_update_snapshot(distro, repo_manager, package):
 
     pkg1 = repo_manager.upload_package(distro['distro'], comp, [deb1['debfile']], changes=None)[0]
     repo_manager.create_snapshot(distro['distro'], 'snap1')
-    assert package_is_in_repo(repo_manager, pkg1, snap1, comp)
+    assert package_is_in_repo(repo_manager, pkg1, snap1, comp, meta=False)
 
     repo_manager.create_snapshot(distro['distro'], 'snap2', from_snapshot='snap1')
     pkg2 = repo_manager.upload_package(distro['distro'], comp, [deb2['debfile']], changes=None)[0]
     repo_manager.create_snapshot(distro['distro'], 'snap1')
-    assert package_is_in_repo(repo_manager, pkg2, snap1, comp)
-    assert not package_is_in_repo(repo_manager, pkg2, snap2, comp)
+    assert package_is_in_repo(repo_manager, pkg2, snap1, comp, meta=False)
+    assert not package_is_in_repo(repo_manager, pkg2, snap2, comp, meta=False)
+
+
+def test_distro_quotas(distro_gen, repo_manager, package):
+
+    distro = distro_gen.get(quota=4096)
+    comp = distro['components'][0]
+    deb1 = package.get('0.1', deadweight=2048)
+    deb2 = package.get('0.2', deadweight=102400)
+
+    pkg1 = repo_manager.upload_package(distro['distro'], comp, [deb1['debfile']], changes=None)[0]
+    assert package_is_in_repo(repo_manager, pkg1, distro['distro'], comp)
+    distro_settings = repo_manager.db.cacus.distros.find_one({'distro': distro['distro']})
+    assert distro_settings['quota_used'] == deb1['debsize']
+    with pytest.raises(repo_manager.common.FatalError):
+        repo_manager.upload_package(distro['distro'], comp, [deb2['debfile']], changes=None)
 
 
 def test_delete_snapshot(distro, repo_manager):

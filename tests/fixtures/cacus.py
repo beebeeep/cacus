@@ -22,22 +22,25 @@ mongo = factories.mongodb('mongo_proc')
 
 
 @pytest.fixture
-def distro(repo_manager):
-    repo_manager.create_distro('testdistro', 'description',
-                               components=['comp1', 'comp2'],
-                               gpg_check=False, strict=False, simple=True,
-                               incoming_wait_timeout=10, retention=2)
-    return {'distro': 'testdistro', 'components': ['comp1', 'comp2']}
+def distro_gen(repo_manager):
 
+    class Generator(object):
+        def get(self, name='testdistro', description='desription', components=['comp1', 'comp2'], gpg_check=False,
+                strict=False, simple=True, incoming_wait_timeout=10, retention=2, quota=None):
+            repo_manager.create_distro(name, description, components=components, gpg_check=gpg_check,
+                                       strict=strict, simple=simple, retention=retention,
+                                       incoming_wait_timeout=incoming_wait_timeout, quota=quota)
+            return {'distro': name, 'components': components}
+
+    return Generator()
 
 @pytest.fixture
-def full_distro(repo_manager):
-    repo_manager.create_distro('testdistro_full', 'description',
-                               components=['comp1', 'comp2'],
-                               gpg_check=False, strict=True, simple=False,
-                               incoming_wait_timeout=10)
-    return {'distro': 'testdistro_full', 'components': ['comp1', 'comp2']}
+def distro(distro_gen):
+    return distro_gen.get()
 
+@pytest.fixture
+def full_distro(distro_gen):
+    return distro_gen.get(simple=False, strict=True)
 
 @pytest.yield_fixture(scope='session')
 def storage():
@@ -77,7 +80,9 @@ def cacus_config(request, storage):
 def repo_manager(request, cacus_config, mongo):
 
     repo_manage = importlib.import_module('cacus.repo_manage')
-    return repo_manage.RepoManager(config=cacus_config, mongo=mongo)
+    manager = repo_manage.RepoManager(config=cacus_config, mongo=mongo)
+    manager.common = importlib.import_module('cacus.common')
+    return manager
 
 
 @pytest.yield_fixture
@@ -90,7 +95,12 @@ def duploader(request, cacus_config, mongo):
     os.kill(duploader_process.pid, signal.SIGTERM)
 
 
-def package_is_in_repo(manager, package, distro, component):
+def package_is_in_repo(manager, package, distro, component, meta=True):
+    if meta:
+        metadata = manager.db.packages[distro].find_one({'Package': package['Package'], 'Version': package['Version']})
+        if not metadata:
+            return False
+
     packages = manager.db.cacus.repos.find_one({
         'distro': distro, 'component': component, 'architecture': package['Architecture']})['packages_file']
     with open(os.path.join(manager.config['storage']['path'], packages)) as f:

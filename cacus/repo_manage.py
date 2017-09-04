@@ -16,15 +16,21 @@ import common
 
 class RepoManager(common.Cacus):
 
-    def create_distro(self, distro, description, components,  simple, strict=None,
+    def create_distro(self, distro, description, components,  simple, strict=None, quota=None,
                       gpg_check=None, incoming_wait_timeout=None, retention=None, gpg_key=None):
         if gpg_key and not self._check_key(gpg_key):
             raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
-            {'$set': {
-                'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention,
-                'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key}},
+            {
+                '$set': {
+                    'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
+                    'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
+                },
+                '$inc': {
+                    'quota_used': 0
+                }
+            },
             return_document=ReturnDocument.BEFORE,
             upsert=True)
         self.log.info("%s distro '%s', simple: %s, components: %s", "Updated" if old_distro else "Created", distro, simple, ', '.join(components))
@@ -135,11 +141,11 @@ class RepoManager(common.Cacus):
         for source in sources_to_delete:
             self.log.warn("Removing %s_%s from %s/%s due to retention policy", source['Package'], source['Version'], distro, comp)
             self.remove_package(pkg=source['Package'], ver=source['Version'], distro=distro, comp=comp,
-                                source_pkg=True, skipUpdateMeta=skipUpdateMeta, locked=True)
+                                source_pkg=True, skipUpdateMeta=skipUpdateMeta, locked=True, purge=True)
         for deb in debs_to_delete:
             self.log.warn("Removing %s_%s_%s from %s/%s due to retention policy", deb['Package'], deb['Version'], deb['Architecture'], distro, comp)
             self.remove_package(pkg=deb['Package'], ver=deb['Version'], distro=distro, comp=comp,
-                                source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True)
+                                source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True, purge=True)
 
     def _process_deb_file(self, file):
         with open(file) as f:
@@ -255,6 +261,18 @@ class RepoManager(common.Cacus):
             skipUpdateMeta - whether to update distro metadata
         """
 
+        distro_settings = self.db.cacus.distros.find_one({'distro': distro}, {'distro': 1, 'strict': 1, 'quota': 1, 'quota_used': 1})
+        incoming_bytes = 0
+        if not distro_settings:
+            raise common.NotFound("Distribution '{}' was not found".format(distro))
+
+        if distro_settings['strict'] and not any(x.endswith('.changes') for x in files):
+            raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
+        if distro_settings['quota'] is not None:
+            incoming_bytes = sum(os.stat(file).st_size for file in files)
+            if incoming_bytes > distro_settings['quota'] - distro_settings['quota_used']:
+                raise common.FatalError("Quota exceeded for distro '{distro}': you are using {quota_used} bytes of {quota}".format(**distro_settings))
+
         src_pkg = {}
         debs = []
         affected_arches = set()
@@ -317,6 +335,14 @@ class RepoManager(common.Cacus):
                             return_document=ReturnDocument.AFTER,
                             upsert=True)
                         components_to_update.update(result['components'])
+
+                    if distro_settings['quota'] is not None:
+                        distro_settings = self.db.cacus.distros.find_one_and_update(
+                            {'distro': distro},
+                            {'$inc': {'quota_used': incoming_bytes}},
+                            return_document=ReturnDocument.AFTER,
+                            upsert=False)
+                        self.log.info("Updated quotas for distro %s: used %s out of %s", distro, distro_settings['quota_used'], distro_settings['quota'])
 
                     self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
 
@@ -497,7 +523,11 @@ class RepoManager(common.Cacus):
         data.write("\n")
         return data
 
-    def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, skipUpdateMeta=False, locked=False):
+    def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, purge=False, skipUpdateMeta=False, locked=False):
+        """ Removes package from specified distro/component """
+
+        self.log.info("Removing %s_%s from %s/%s", pkg, ver, distro, comp)
+
         affected_arches = []
         try:
             with common.DistroLock(self.db, distro, [comp], already_locked=locked):
@@ -506,9 +536,8 @@ class RepoManager(common.Cacus):
                     result = self.db.sources[distro].find_one_and_update(
                         {'Package': pkg, 'Version': ver, 'components': comp},
                         {'$pullAll': {'components': [comp]}},
-                        projection={'Architecture': 1},
                         upsert=False,
-                        return_document=ReturnDocument.BEFORE
+                        return_document=ReturnDocument.AFTER
                     )
                     if result:
                         binaries = self.db.packages[distro].update_many(
@@ -524,26 +553,77 @@ class RepoManager(common.Cacus):
                     result = self.db.packages[distro].find_one_and_update(
                         {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': comp},
                         {'$pullAll': {'components': [comp]}},
-                        projection={'Architecture': 1},
                         upsert=False,
-                        return_document=ReturnDocument.BEFORE
+                        return_document=ReturnDocument.AFTER
                     )
                     affected_arches = [result['Architecture']] if result else []
                 if not result:
                     msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, comp)
                     self.log.error(msg)
                     raise common.NotFound(msg)
-                else:
-                    msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
-                    self.log.info(msg)
-                    if not skipUpdateMeta:
-                        if 'all' in affected_arches:
-                            affected_arches = None      # update all arches in case we have 'all' arch in scope
-                        self.log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
-                        self.update_distro_metadata(distro, [comp], affected_arches)
-                    return msg
+
+                msg = "Package '{}_{}' was removed from '{}/{}'".format(pkg, ver, distro, comp)
+                self.log.info(msg)
+
+                if purge and result['components'] == []:
+                    self.purge_package(pkg=result['Package'], ver=result['Version'], distro=distro, skipUpdateMeta=True, locked=True)
+
+                if not skipUpdateMeta:
+                    if 'all' in affected_arches:
+                        affected_arches = None      # update all arches in case we have 'all' arch in scope
+                    self.log.info("Updating '%s' distro metadata for component %s, arch: %s", distro, comp, affected_arches)
+                    self.update_distro_metadata(distro, [comp], affected_arches)
+                return msg
         except common.DistroLockTimeout as e:
             raise common.TemporaryError(e.message)
+
+    def purge_package(self, pkg=None,  ver=None, arch=None, distro=None, skipUpdateMeta=False, locked=False):
+        """ Removes package from all components and wipes it (all sources, debs etc) from storage
+        XXX: note that purging package may break existing distro snapshots!
+        """
+
+        self.log.info("Purging %s_%s from distro %s", pkg, ver, distro)
+
+        affected_arches = set()
+        affected_comps = set()
+        try:
+            with common.DistroLock(self.db, distro, comps=None, already_locked=locked):
+                result = self.db.sources[distro].find_one_and_delete({'Package': pkg, 'Version': ver})
+                if result:
+                    # found source package matching query, remove this package, its non-deb files and all debs it consists of
+                    for f in result['files']:
+                        self.storage.delete(f['storage_key'])
+                    source = result['_id']
+                    while True:
+                        result = self.db.packages[distro].find_one_and_delete({'source': source})
+                        if result:
+                            affected_arches.add(result['Architecture'])
+                            affected_comps.update(result['components'])
+                            self.storage.delete(result['storage_key'])
+                        else:
+                            break
+                else:
+                    # try to find in packages db
+                    selector = {'Package': pkg, 'Version': ver}
+                    if arch:
+                        selector['Architecture'] = arch
+
+                    result = self.db.packages[distro].find_one_and_delete(selector)
+                    if result:
+                        affected_arches.update(result['Architecture'])
+                        affected_comps.update(result['components'])
+                        self.storage.delete(result['storage_key'])
+                    else:
+                        raise common.NotFound("Package not found")
+
+                if not skipUpdateMeta:
+                    if 'all' in affected_arches:
+                        affected_arches = None      # update all arches in case we have 'all' arch in scope
+                    self.update_distro_metadata(distro, affected_comps, affected_arches)
+        except common.DistroLockTimeout as e:
+            raise common.TemporaryError(e.message)
+
+        return "Package {}_{} was removed from {}".format(pkg, ver, distro)
 
     def copy_package(self, pkg=None, ver=None, arch=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
         affected_arches = []
@@ -657,7 +737,6 @@ class RepoManager(common.Cacus):
 
         if from_snapshot:
             distro = self._get_snapshot_name(distro, from_snapshot)
-
 
         existing = self.db.cacus.distros.find_one({'distro': snapshot_name})
         if existing:

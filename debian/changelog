@@ -1,8 +1,15 @@
+cacus (0.7.17) unstable; urgency=medium
+
+  * Added package purging
+  * Purge old packages
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 04 Sep 2017 11:34:03 +0000
+
 cacus (0.7.16) unstable; urgency=medium
 
   * fixed error handling in /api/v1/package/remove
 
- -- Daniil Migalin <midanil@microsoft.com>  Tue, 15 Aug 2017 13:29:40 +0000
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Tue, 15 Aug 2017 13:29:40 +0000
 
 cacus (0.7.15) unstable; urgency=medium
 
@@ -15,7 +22,7 @@ cacus (0.7.14) unstable; urgency=medium
   * Fixed distro import
   * Added CORS stuff
 
- -- Daniil Migalin <midanil@microsoft.com>  Wed, 02 Aug 2017 10:03:49 +0000
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Wed, 02 Aug 2017 10:03:49 +0000
 
 cacus (0.7.13) unstable; urgency=medium
 
@@ -36,7 +43,7 @@ cacus (0.7.11) unstable; urgency=medium
   * Added list of components to /distro/show
   * Removed old API endpoint
 
- -- Daniil Migalin <midanil@microsoft.com>  Tue, 27 Jun 2017 12:14:00 +0000
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Tue, 27 Jun 2017 12:14:00 +0000
 
 cacus (0.7.10) unstable; urgency=medium
 

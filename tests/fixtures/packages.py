@@ -3,6 +3,7 @@
 import os
 import time
 import email
+import random
 import shutil
 import tempfile
 import subprocess
@@ -17,7 +18,7 @@ def package(request):
     class Packager(object):
         tmp_dirs = []
 
-        def get(self, version):
+        def get(self, version, deadweight=100):
             tmp_dir = tempfile.mkdtemp('_cacustestpkg')
             pkg_dir = os.path.join(tmp_dir, 'testpackage-{}'.format(version))
             tpl_path = os.path.join(os.path.dirname(__file__), 'contrib/testpackage')
@@ -25,6 +26,11 @@ def package(request):
             self.tmp_dirs.append(tmp_dir)
 
             os.chdir(pkg_dir)
+
+            with open('data', 'w') as f:
+                for x in xrange(deadweight):
+                    f.write(chr(random.randint(0, 255)))
+
             with open('debian/changelog', 'w') as f:
                 ch = changelog.Changelog()
                 ch.new_block(package='testpackage', version=changelog.Version(version), distributions='unstable',
@@ -45,7 +51,7 @@ def package(request):
                         deb = x
             control = debfile.DebFile(deb).debcontrol()
 
-            return {'control': control, 'debfile': deb, 'files': files}
+            return {'control': control, 'debfile': deb, 'debsize': os.stat(deb).st_size, 'files': files}
 
         def cleanup(self):
             for dir in self.tmp_dirs:
@@ -53,7 +59,7 @@ def package(request):
 
     p = Packager()
     yield p
-    #p.cleanup()
+    p.cleanup()
 
 
 @pytest.fixture(scope='session')
