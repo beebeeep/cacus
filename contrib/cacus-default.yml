@@ -50,7 +50,10 @@ gpg:
 
 retry_count: 3
 retry_delays: [2, 5, 10, 30, 60, 90]
-lock_cleanup_timeout: 3600
+
+lock:
+  method: mongo
+  ttl: 600
 
 # additional plugins
 plugin_path:

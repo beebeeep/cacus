@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import imp
 import time
 import yaml
 import uuid
 import gnupg
 import base64
+import socket
 import pymongo
 import hashlib
 import requests
@@ -24,6 +26,8 @@ from ipaddress import ip_network
 from pymongo.collection import ReturnDocument
 
 import plugin
+
+consul = None       # optional module
 
 
 class _ColorFormatter(logging.Formatter):
@@ -142,6 +146,21 @@ class Cacus(object):
 
         self.log = logging.getLogger('cacus.{}'.format(type(self).__name__))
 
+        lock_method = self.config['lock']['method']
+        if lock_method == 'mongo':
+            pass
+        elif lock_method == 'consul':
+            try:
+                global consul
+                module_info = imp.find_module('consul')
+                consul = imp.load_module('consul', *module_info)
+            except ImportError:
+                self.log.critical("Cannot find 'consul' module. Check if 'python-consul' module is installed")
+                sys.exit(1)
+        else:
+            self.log.critical("Unkonwn lock method '%s'", lock_method)
+            sys.exit(1)
+
         # GPG
         try:
             self.gpg = gnupg.GPG(homedir=self.config['gpg']['home'])
@@ -156,7 +175,9 @@ class Cacus(object):
         # mongo
         if not mongo:
             self.config['db']['connect'] = False
+            implementation = self.config['db'].pop('implementation', 'mongo')
             self.db = pymongo.MongoClient(**(self.config['db']))
+            self.db.implementation = implementation
         else:
             self.db = mongo
 
@@ -180,7 +201,18 @@ class Cacus(object):
             config = yaml.load(cfg)
         return config
 
+    def lock(self, *args, **kwargs):
+        lock_method = self.config['lock']['method']
+        if lock_method == 'mongo':
+            return _MongoLock(self.db, *args, **kwargs)
+        elif lock_method == 'consul':
+            return _ConsulLock(self.db, self.config['lock'], *args, **kwargs)
+
     def create_cacus_indexes(self):
+        if self.db.implementation == 'cosmos':
+            self.log.warning("Using Azure CosmosDB, skipping index creation")
+            return
+
         self.log.info("Creating indexes for cacus.distros...")
         self.db.cacus.distros.create_index('distro', unique=True)
         self.db.cacus.distros.create_index('snapshot')
@@ -204,7 +236,7 @@ class Cacus(object):
             ('distro', pymongo.DESCENDING),
             ('comp', pymongo.DESCENDING)],
             unique=True)
-        self.db.cacus.locks.create_index('modified', expireAfterSeconds=self.config['lock_cleanup_timeout'])
+        self.db.cacus.locks.create_index('modified', expireAfterSeconds=self.config['lock']['ttl'])
 
         self.log.info("Creating indexes for cacus.access_tokens...")
         self.db.cacus.access_tokens.create_index('jti', unique=True)
@@ -212,6 +244,10 @@ class Cacus(object):
         self.db.cacus.access_tokens.create_index('exp', expireAfterSeconds=300)
 
     def create_packages_indexes(self, distros=None):
+        if self.db.implementation == 'cosmos':
+            self.log.warning("Using Azure CosmosDB, skipping index creation")
+            return
+
         if not distros:
             distros = self.db.packages.collection_names()
 
@@ -391,10 +427,8 @@ class ProxyStream(object):
             raise IOError("Client has closed connection")
 
 
-class DistroLock(object):
-    """ Poor man's implementation of distributed lock in mongodb.
-    Ostrich algorithm used for dealing with deadlocks. You can always add some retries if returning 409 is not an option
-    """
+class _DistroLock(object):
+    """ TODO move to plugins mb? """
 
     def __init__(self, db, distro, comps=None, timeout=30, already_locked=False):
         self.db = db
@@ -406,7 +440,29 @@ class DistroLock(object):
         else:
             self.comps = comps
         self.timeout = timeout
-        self.log = logging.getLogger("cacus.RepoLock")
+        self.log = logging.getLogger("cacus.{}".format(type(self).__name__))
+
+    def _unlock(self, comps):
+        raise NotImplementedError()
+
+    def _lock(self):
+        raise NotImplementedError()
+
+    def __enter__(self):
+        if self.already_locked:
+            self.log.debug("%s/%s is already locked", self.distro, self.comps)
+            return
+        self._lock()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not self.already_locked:
+            self._unlock(self.comps)
+
+
+class _MongoLock(_DistroLock):
+    """ Poor man's implementation of distributed lock in mongodb.
+    Ostrich algorithm used for dealing with deadlocks. You can always add some retries if returning 409 is not an option
+    """
 
     def _unlock(self, comps):
         for comp in comps:
@@ -424,11 +480,7 @@ class DistroLock(object):
             except:
                 self.log.error("Error while unlocking %s/%s: %s", self.distro, comp, sys.exc_info())
 
-    def __enter__(self):
-        if self.already_locked:
-            self.log.debug("%s/%s is already locked", self.distro, self.comps)
-            return
-
+    def _lock(self):
         self.log.debug("Trying to lock %s/%s", self.distro, self.comps)
         while True:
             locked = []
@@ -458,9 +510,61 @@ class DistroLock(object):
             else:
                 break       # good, we just locked all comps
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        if not self.already_locked:
-            self._unlock(self.comps)
+
+class _ConsulLock(_DistroLock):
+
+    def __init__(self, db, settings, *args, **kwargs):
+        self.settings = settings
+        self.consul = consul.Consul(**settings.get('connection', {}))
+        super(_ConsulLock, self).__init__(db, *args, **kwargs)
+
+    def _unlock(self, comps):
+        for comp in comps:
+            try:
+                result = self.consul.kv.put('locks/{}/{}'.format(self.distro, comp), None, release=self.session)
+                if result:
+                    self.log.debug("%s/%s unlocked", self.distro, comp)
+                else:
+                    self.log.warning("Cannot unlock %s/%s", self.distro, comp)
+            except:
+                self.log.error("Error while unlocking %s/%s: %s", self.distro, comp, sys.exc_info())
+
+        try:
+            self.consul.session.destroy(self.session)
+            self.log.debug("Destroyed consul session %s", self.session)
+        except:
+            self.log.error("Error while destrying consul session: %s", sys.exc_info())
+
+    def _lock(self):
+        try:
+            self.session = self.consul.session.create(name=socket.getfqdn(), ttl=self.settings['ttl'])
+            self.log.debug("Created consul session %s", self.session)
+            while True:
+                locked = []
+                for comp in self.comps:
+                    try:
+                        result = self.consul.kv.put('locks/{}/{}'.format(self.distro, comp), 'YOU SHALL NOT PASS', acquire=self.session)
+                        if result:
+                            self.log.debug("%s/%s locked", self.distro, comp)
+                            locked.append(comp)
+                        else:
+                            self.log.debug("Failed to lock %s/%s, waiting...", self.distro, comp)
+                            self._unlock(locked)
+                            time.sleep(1)
+                            self.timeout -= 1
+                            if self.timeout > 0:
+                                break   # try to lock all comps once again
+                            else:
+                                raise DistroLockTimeout("Timeout while trying to lock distro {0}/{1}".format(self.distro, comp))
+                    except:
+                        self.log.error("Error while locking %s/%s: %s", self.distro, comp, sys.exc_info())
+                        self._unlock(locked)
+                        raise FatalError("Error while locking {}/{}: {}", self.distro, comp, sys.exc_info())
+                else:
+                    break       # good, we just locked all comps
+        except:
+            self.log.error("Error while creating session: %s", sys.exc_info())
+            raise FatalError("Error while creating consul session: {}", sys.exc_info())
 
 
 def _setup_log_handlers(config):
