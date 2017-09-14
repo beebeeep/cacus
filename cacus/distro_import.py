@@ -19,7 +19,6 @@ import urllib
 from debian import deb822
 
 import repo_manage
-import common
 
 
 class DistroImporter(repo_manage.RepoManager):
@@ -54,7 +53,7 @@ class DistroImporter(repo_manage.RepoManager):
                 release = deb822.Release(f)
 
             # since we don't know list of components in distro, lock distro on some fake component name
-            with common.DistroLock(self.db, distro, ['__cacusimport']):
+            with self.lock(self.db, distro, ['__cacusimport']):
                 # remove all packages imported - we will recreate distro collection from scratch
                 # note that this does not affect APT API of distro - indices are still in place i
                 # and will be updated once we finish import

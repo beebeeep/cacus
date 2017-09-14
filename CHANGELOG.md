@@ -1,4 +1,8 @@
-## [Version 0.7.18](https://github.com/beebeeep/cacus/tree/v0.7.17) (2017-09-04)
+## [Version 0.7.19](https://github.com/beebeeep/cacus/tree/v0.7.19) (2017-09-14)
+  * Added compatibility with Azure CosmosDB (mongodb API)
+  * Added support of locks in Consul
+
+## [Version 0.7.18](https://github.com/beebeeep/cacus/tree/v0.7.18) (2017-09-04)
   * Added optional file name for api/v1/package/upload
   * Fixed uploading to non-existent components
 

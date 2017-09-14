@@ -13,7 +13,7 @@ def test_upload_package(distro, duploader, deb_pkg):
     incoming = os.path.join(duploader.config['duploader_daemon']['incoming_root'],
                             distro['distro'], comp, os.path.basename(deb_pkg['debfile']))
     copy(deb_pkg['debfile'], incoming)
-    time.sleep(3)
+    time.sleep(5)
     assert package_is_in_repo(duploader, deb_pkg['control'], distro['distro'], comp)
 
 
@@ -25,6 +25,6 @@ def test_upload_source(full_distro, duploader, deb_pkg):
     for file in deb_pkg['files']:
         print file
         copy(file, incoming)
-    time.sleep(3)
+    time.sleep(5)
     assert package_is_in_repo(duploader, deb_pkg['control'], full_distro['distro'], comp)
     assert source_is_in_repo(duploader, deb_pkg['control'], full_distro['distro'], comp)

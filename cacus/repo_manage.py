@@ -45,18 +45,23 @@ class RepoManager(common.Cacus):
 
         to_delete = set(old_components) - set(components)
         if to_delete:
-            with common.DistroLock(self.db, distro, to_delete):
+            with self.lock(distro, to_delete):
                 for deleted in to_delete:
                     self._delete_component(distro, deleted)
 
-        # even empty distro deserves to have proper Release file and Package&Sources indices
-        self.update_distro_metadata(distro)
         self.create_packages_indexes(distros=[distro])
+
+        # even empty distro deserves to have proper Release file and Package&Sources indices
+        try:
+            with self.lock(distro):
+                self.update_distro_metadata(distro)
+        except common.DistroLockTimeout as e:
+            raise common.TemporaryError(e.message)
 
         return old_distro
 
     def remove_distro(self, distro):
-        with common.DistroLock(self.db, distro):
+        with self.lock(distro):
             # Transactions? Bitch, please!
             self.log.info("Removing distro '%s'", distro)
             result = self.db.cacus.distros.delete_one({'distro': distro, 'snapshot': {'$exists': False}})
@@ -320,7 +325,7 @@ class RepoManager(common.Cacus):
             # critical section. updating meta DB
             try:
                 # block whole distro since we will possibly update not only 'comp' component
-                with common.DistroLock(self.db, distro):
+                with self.lock(distro):
                     components_to_update = set([comp])
                     if src_pkg:
                         src = self.db.sources[distro].find_one_and_update(
@@ -440,8 +445,8 @@ class RepoManager(common.Cacus):
         if not comps:
             comps = [x['component'] for x in self.db.cacus.components.find({'distro': distro})]
         if not arches:
-            arches = self.db.cacus.repos.find({'distro': distro}).distinct('architecture')
-            arches.extend(self.default_arches)
+            arches = set(x['architecture'] for x in self.db.cacus.repos.find({'distro': distro}, {'architecture': 1}))
+            arches.update(self.default_arches)
 
         if not comps or not arches:
             raise common.NotFound("Distro {} is not found or empty".format(distro))
@@ -533,7 +538,7 @@ class RepoManager(common.Cacus):
 
         affected_arches = []
         try:
-            with common.DistroLock(self.db, distro, [comp], already_locked=locked):
+            with self.lock(distro, [comp], already_locked=locked):
                 if source_pkg:
                     # remove source package (if any) and all binary packages within it from component
                     result = self.db.sources[distro].find_one_and_update(
@@ -590,7 +595,7 @@ class RepoManager(common.Cacus):
         affected_arches = set()
         affected_comps = set()
         try:
-            with common.DistroLock(self.db, distro, comps=None, already_locked=locked):
+            with self.lock(distro, comps=None, already_locked=locked):
                 result = self.db.sources[distro].find_one_and_delete({'Package': pkg, 'Version': ver})
                 if result:
                     # found source package matching query, remove this package, its non-deb files and all debs it consists of
@@ -634,7 +639,7 @@ class RepoManager(common.Cacus):
             raise common.NotFound("Component '{}' was not found in distro '{}'".format(dst, distro))
 
         try:
-            with common.DistroLock(self.db, distro, [src, dst]):
+            with self.lock(distro, [src, dst]):
                 if source_pkg:
                     # move source package (if any) and all binary packages within it
                     result = self.db.sources[distro].find_one_and_update(
@@ -716,7 +721,7 @@ class RepoManager(common.Cacus):
             raise common.NotFound("Snapshot '{}' does not exist".format(name))
 
         try:
-            with common.DistroLock(self.db, distro):
+            with self.lock(distro):
                 # XXX: Packages and Sources indices are not being cleaned up here, source of garbage in storage:
                 self.db.cacus.components.remove({'snapshot': {'origin': distro, 'name': name}})
                 self.db.cacus.repos.remove({'snapshot': {'origin': distro, 'name': name}})
@@ -755,7 +760,7 @@ class RepoManager(common.Cacus):
             raise common.NotFound("Distro or snapshot '{}' not found".format(distro))
 
         try:
-            with common.DistroLock(self.db, distro):
+            with self.lock(distro):
                 for component in self.db.cacus.components.find({'distro': distro}):
                     component['distro'] = snapshot_name
                     component['snapshot'] = snapshot_info

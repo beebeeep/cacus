@@ -19,6 +19,20 @@ for f in ['/usr/bin/mongod', '/usr/local/bin/mongod']:
 
 mongo_proc = factories.mongo_proc(port=None, logsdir='/tmp', executable=mongod)
 mongo = factories.mongodb('mongo_proc')
+"""
+import pymongo
+@pytest.fixture
+def mongo():
+    db = pymongo.MongoClient(host='mongodb://cacus:LALALALA@cacus.documents.azure.com:10255/?ssl=true&replicaSet=globaldb')
+    db.implementation = 'cosmos'
+    for c in db.cacus.command({'listCollections': 1})['cursor']['firstBatch']:
+        db.cacus.drop_collection(c['name'])
+    for c in db.packages.command({'listCollections': 1})['cursor']['firstBatch']:
+        db.packages.drop_collection(c['name'])
+    for c in db.sources.command({'listCollections': 1})['cursor']['firstBatch']:
+        db.sources.drop_collection(c['name'])
+    return db
+"""
 
 
 @pytest.fixture
@@ -58,7 +72,7 @@ def cacus_config(request, storage):
     config = {
         'duploader_daemon': {'incoming_root': os.path.join(storage, 'incoming')},
         'gpg': {'home': '~/.gnupg', 'sign_key': keyid},
-        'lock_cleanup_timeout': 3600,
+        'lock': {'method': 'consul', 'settings': {}, 'ttl': 300},
         'logging': {
             'app': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
             'access': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
@@ -99,6 +113,7 @@ def package_is_in_repo(manager, package, distro, component, meta=True):
     if meta:
         metadata = manager.db.packages[distro].find_one({'Package': package['Package'], 'Version': package['Version']})
         if not metadata:
+            print("Cannot find package in metadata")
             return False
 
     packages = manager.db.cacus.repos.find_one({
@@ -108,6 +123,7 @@ def package_is_in_repo(manager, package, distro, component, meta=True):
             if pkg['Package'] == package['Package'] and pkg['Version'] == package['Version']:
                 if os.path.isfile(os.path.join(manager.config['storage']['path'], pkg['Filename'])):
                     return True
+    print("Cannot find package in storage")
     return False
 
 
