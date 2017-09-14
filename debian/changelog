@@ -1,3 +1,10 @@
+cacus (0.7.19) unstable; urgency=medium
+
+  * Added compatibility with Azure CosmosDB (mongodb API)
+  * Added support of locks in Consul
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Thu, 14 Sep 2017 14:19:08 +0000
+
 cacus (0.7.18) unstable; urgency=medium
 
   * Added optional file name for api/v1/package/upload
