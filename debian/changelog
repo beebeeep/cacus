@@ -1,3 +1,9 @@
+cacus (0.7.20) unstable; urgency=medium
+
+  * Decrement used quota upon package purging
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 18 Sep 2017 12:13:16 +0000
+
 cacus (0.7.19) unstable; urgency=medium
 
   * Added compatibility with Azure CosmosDB (mongodb API)

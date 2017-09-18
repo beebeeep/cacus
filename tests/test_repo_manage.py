@@ -141,8 +141,13 @@ def test_distro_quotas(distro_gen, repo_manager, package):
     assert package_is_in_repo(repo_manager, pkg1, distro['distro'], comp)
     distro_settings = repo_manager.db.cacus.distros.find_one({'distro': distro['distro']})
     assert distro_settings['quota_used'] == deb1['debsize']
+
     with pytest.raises(repo_manager.common.FatalError):
         repo_manager.upload_package(distro['distro'], comp, [deb2['debfile']], changes=None)
+
+    repo_manager.purge_package(pkg=pkg1['Package'], ver=pkg1['Version'], distro = distro['distro'])
+    distro_settings = repo_manager.db.cacus.distros.find_one({'distro': distro['distro']})
+    assert distro_settings['quota_used'] == 0
 
 
 def test_delete_snapshot(distro, repo_manager):
