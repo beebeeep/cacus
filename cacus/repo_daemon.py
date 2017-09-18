@@ -347,15 +347,39 @@ class ApiDistroShowHandler(ApiRequestHandler):
             components = [x['component'] for x in (yield c)]
             pkg_count = yield self.settings['db'].packages[d['distro']].count({})
             if 'imported' in d:
-                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
-                               'type': 'mirror', 'source': d['imported']['from'], 'components': components})
+                result.append({
+                    'distro': d['distro'],
+                    'description': d['description'],
+                    'lastupdated': d['lastupdated'].isoformat(),
+                    'packages': pkg_count,
+                    'type': 'mirror',
+                    'source': d['imported']['from'],
+                    'components': components
+                })
             elif 'snapshot' in d:
-                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
-                               'type': 'snapshot', 'origin': d['snapshot']['origin'], 'components': components})
+                result.append({
+                    'distro': d['distro'],
+                    'description': d['description'],
+                    'lastupdated': d['lastupdated'].isoformat(),
+                    'packages': pkg_count,
+                    'type': 'snapshot',
+                    'origin': d['snapshot']['origin'],
+                    'components': components
+                })
             else:
-                result.append({'distro': d['distro'], 'description': d['description'], 'lastupdated': d['lastupdated'].isoformat(), 'packages': pkg_count,
-                               'type': 'general', 'simple': d.get('simple', True), 'strict': d.get('strict', True),
-                               'gpg_key': d.get('gpg_key', None) or self.settings['config']['gpg']['sign_key'], 'components': components})
+                result.append({
+                    'distro': d['distro'],
+                    'description': d['description'],
+                    'lastupdated': d['lastupdated'].isoformat(),
+                    'packages': pkg_count,
+                    'quota': d['quota'] if d['quota'] is not None else -1,
+                    'quota_used': d['quota_used'],
+                    'type': 'general',
+                    'simple': d.get('simple', True),
+                    'strict': d.get('strict', True),
+                    'gpg_key': d.get('gpg_key', None) or self.settings['config']['gpg']['sign_key'],
+                    'components': components
+                })
 
         self.write({'success': True, 'result': result})
 

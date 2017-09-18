@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import os
-import stat
 import hashlib
 import StringIO
 from debian import debfile, deb822
@@ -157,7 +156,7 @@ class RepoManager(common.Cacus):
             hashes = self.get_hashes(file=f)
 
         doc = {
-            'size': os.stat(file)[stat.ST_SIZE],
+            'size': os.stat(file).st_size,
             'sha512': binary.Binary(hashes['sha512'].digest()),
             'sha256': binary.Binary(hashes['sha256'].digest()),
             'sha1': binary.Binary(hashes['sha1'].digest()),
@@ -182,7 +181,7 @@ class RepoManager(common.Cacus):
 
         doc = {
                 'name': filename,
-                'size': os.stat(file)[stat.ST_SIZE],
+                'size': os.stat(file).st_size,
                 'sha512': binary.Binary(hashes['sha512'].digest()),
                 'sha256': binary.Binary(hashes['sha256'].digest()),
                 'sha1': binary.Binary(hashes['sha1'].digest()),
@@ -596,11 +595,13 @@ class RepoManager(common.Cacus):
         affected_comps = set()
         try:
             with self.lock(distro, comps=None, already_locked=locked):
+                freed = 0
                 result = self.db.sources[distro].find_one_and_delete({'Package': pkg, 'Version': ver})
                 if result:
                     # found source package matching query, remove this package, its non-deb files and all debs it consists of
                     for f in result['files']:
                         self.storage.delete(f['storage_key'])
+                        freed += f['size']
                     source = result['_id']
                     while True:
                         result = self.db.packages[distro].find_one_and_delete({'source': source})
@@ -608,6 +609,7 @@ class RepoManager(common.Cacus):
                             affected_arches.add(result['Architecture'])
                             affected_comps.update(result['components'])
                             self.storage.delete(result['storage_key'])
+                            freed += result['meta']['size']
                         else:
                             break
                 else:
@@ -621,9 +623,12 @@ class RepoManager(common.Cacus):
                         affected_arches.update(result['Architecture'])
                         affected_comps.update(result['components'])
                         self.storage.delete(result['storage_key'])
+                        freed += result['meta']['size']
                     else:
                         raise common.NotFound("Package not found")
 
+                self.db.cacus.distros.update_one({'distro': distro},  {'$inc': {'quota_used': -freed}})
+                self.log.info("Purged %s_%s from distro %s, %s bytes freed", pkg, ver, distro, freed)
                 if not skipUpdateMeta:
                     if 'all' in affected_arches:
                         affected_arches = None      # update all arches in case we have 'all' arch in scope
