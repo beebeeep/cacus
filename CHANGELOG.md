@@ -1,3 +1,6 @@
+## [Version 0.7.20](https://github.com/beebeeep/cacus/tree/v0.7.20) (2017-09-18)
+  * Decrement used quota upon package purging
+
 ## [Version 0.7.19](https://github.com/beebeeep/cacus/tree/v0.7.19) (2017-09-14)
   * Added compatibility with Azure CosmosDB (mongodb API)
   * Added support of locks in Consul
