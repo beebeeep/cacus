@@ -533,6 +533,9 @@ class ApiPkgUploadHandler(ApiRequestHandler):
         NB name parameter is not used and added for compatibility
         """
         yield self._check_token(distro)
+
+        skip_update_meta = (self.get_argument('noindex', None) is not None)
+
         try:
             distro_settings = yield self.settings['db'].cacus.distros.find_one({'distro': distro}, {'strict': 1})
             if not distro_settings:
@@ -541,7 +544,7 @@ class ApiPkgUploadHandler(ApiRequestHandler):
                 raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
 
             r = yield self.settings['workers'].submit(self.settings['manager'].upload_package, distro, comp,
-                                                      [self._filename], changes=None)
+                                                      [self._filename], changes=None, skipUpdateMeta=skip_update_meta)
             self.set_status(201)
             self.write({'success': True, 'msg': "Package {0[Package]}_{0[Version]} was uploaded to {1}/{2}".format(r[0], distro, comp)})
 
