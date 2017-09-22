@@ -275,7 +275,7 @@ class RepoManager(common.Cacus):
 
         if distro_settings['strict'] and not any(x.endswith('.changes') for x in files):
             raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
-        if distro_settings['quota'] is not None:
+        if distro_settings.get('quota', None) is not None:
             incoming_bytes = sum(os.stat(file).st_size for file in files)
             if incoming_bytes > distro_settings['quota'] - distro_settings['quota_used']:
                 raise common.FatalError("Quota exceeded for distro '{distro}': you are using {quota_used} bytes of {quota}".format(**distro_settings))
