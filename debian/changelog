@@ -1,3 +1,9 @@
+cacus (0.7.21) unstable; urgency=medium
+
+  * Added "noindex" parameter to api/v1/package/upload for batch uploads
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Fri, 22 Sep 2017 11:49:04 +0000
+
 cacus (0.7.20) unstable; urgency=medium
 
   * Decrement used quota upon package purging

@@ -79,6 +79,12 @@ paths:
           description: Component name
           required: true
           type: string
+        - name: noindex
+          in: query
+          description: Do not update distro index (i.e. Packages and Release files). For batch uploads.
+          required: false
+          type: boolean
+          allowEmptyValue: true
       tags:
         - Packages
       responses:
@@ -171,6 +177,43 @@ paths:
             $ref: '#/definitions/OperationResult'
         404:
           description: Distro, component or package were not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /package/purge/{distro}:
+    post:
+      summary: Purge package from distro
+      description: |
+        Purges package of specified name and version from distro (packages is being removed from metadata and from storage) 
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: purge_params
+          in: body
+          description: Purge parameters
+          required: true
+          schema:
+            '$ref': '#/definitions/PkgPurgeParams'
+      tags:
+        - Packages
+      responses:
+        200:
+          description: Package successfully purged
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro or package were not found
           schema:
             $ref: '#/definitions/OperationResult'
         409:
@@ -704,13 +747,29 @@ definitions:
       arch:
         type: string
         description: Package architecture
+    required:
+      - pkg
+      - ver
+      
+  PkgPurgeParams:
+    type: object
+    properties:
+      pkg:
+        type: string
+        description: Package name
+      ver:
+        type: string
+        description: Package version
+      arch:
+        type: string
+        description: Package architecture
       source_pkg:
         type: boolean
         description: Remove whole source package
     required:
       - pkg
       - ver
-      
+
   PkgSearchParams:
     type: object
     properties:

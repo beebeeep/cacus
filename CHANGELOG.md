@@ -1,3 +1,6 @@
+## [Version 0.7.21](https://github.com/beebeeep/cacus/tree/v0.7.21) (2017-09-22)
+  * Added "noindex" parameter to api/v1/package/upload for batch uploads
+
 ## [Version 0.7.20](https://github.com/beebeeep/cacus/tree/v0.7.20) (2017-09-18)
   * Decrement used quota upon package purging
 
