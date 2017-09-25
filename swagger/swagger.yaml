@@ -499,6 +499,33 @@ paths:
           schema:
             $ref: '#/definitions/OperationResult'
 
+  /distro/recalculate_quotas/{distro}:
+    post:
+      summary: Recalcultate distro quotas
+      description: |
+        Update distro quotas (i.e. space used for distro files excluding indices)
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro was successfully recalculated
+          schema:
+            $ref: '#/definitions/OperationResult'
+        404:
+          description: Distro not found
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
   /distro/snapshot/{distro}:
     get:
       summary: List distro snapshots
