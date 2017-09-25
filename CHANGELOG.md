@@ -1,3 +1,7 @@
+## [Version 0.7.22](https://github.com/beebeeep/cacus/tree/v0.7.22) (2017-09-25)
+  * Correct handling of package reupload
+  * Added /api/v1/distro/recalculate_quotas
+
 ## [Version 0.7.21](https://github.com/beebeeep/cacus/tree/v0.7.21) (2017-09-22)
   * Added "noindex" parameter to api/v1/package/upload for batch uploads
 
