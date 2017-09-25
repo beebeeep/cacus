@@ -114,10 +114,9 @@ class RepoManager(common.Cacus):
 
     def _apply_retention_policy(self, distro, comp, sources, debs, skipUpdateMeta=False):
         """ Removes old packages according to distro's retention policy
-        Note that package will be removed only from indices, and will stay in DB & storage,
-        since it's pretty tricky to determine whether it's still used in some snapshot
+        XXX retention may break distro snapshots by deleting files from storage that are still listed in snapshot
         XXX: should be called under DistroLock
-        TODO: full cleanup """
+        """
         settings = self.db.cacus.distros.find_one({'distro': distro})
         if not settings.get('retention', False):
             self.log.info("No retention policy defined for distro '{}'".format(distro))
@@ -259,7 +258,7 @@ class RepoManager(common.Cacus):
         Arguments:
             distro - distribution to upload packag
             comp - component within distribution
-            changes - array of files belonging to package in scope:
+            files - array of files belonging to package in scope:
                 .deb for binary packages (at least one required)
                 .dsc, .tar.[gx]z, .changes for sources (optional)
             skipUpdateMeta - whether to update distro metadata
@@ -268,13 +267,15 @@ class RepoManager(common.Cacus):
         distro_settings = self.db.cacus.distros.find_one({'distro': distro})
         distro_component = self.db.cacus.components.find_one({'distro': distro, 'component': comp})
         incoming_bytes = 0
+
         if not distro_settings:
             raise common.NotFound("Distribution '{}' was not found".format(distro))
         if not distro_component:
             raise common.NotFound("Component '{}' of distribution '{}' was not found".format(comp, distro))
 
-        if distro_settings['strict'] and not any(x.endswith('.changes') for x in files):
+        if distro_settings['strict'] and not changes:
             raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
+
         if distro_settings.get('quota', None) is not None:
             incoming_bytes = sum(os.stat(file).st_size for file in files)
             if incoming_bytes > distro_settings['quota'] - distro_settings['quota_used']:
@@ -283,6 +284,10 @@ class RepoManager(common.Cacus):
         src_pkg = {}
         debs = []
         affected_arches = set()
+        if changes:
+            src_pkg['Package'] = changes['Source']
+            src_pkg['Version'] = changes['Version']
+
         for file in files:
             if file.endswith('.deb') or file.endswith('.udeb'):
                 deb, hashes = self._process_deb_file(file)
@@ -314,12 +319,10 @@ class RepoManager(common.Cacus):
                 if dsc:
                     src_pkg['dsc'] = dsc
 
-            if changes:
-                src_pkg['Package'] = changes['Source']
-                src_pkg['Version'] = changes['Version']
+        # in case of reupload: perform storage cleanup and recalculate incoming size
+        incoming_bytes -= self._reupload_cleanup(distro, src_pkg, debs)
 
         affected_arches.update(x['Architecture'] for x in debs)
-
         if affected_arches:
             # critical section. updating meta DB
             try:
@@ -343,13 +346,13 @@ class RepoManager(common.Cacus):
                             upsert=True)
                         components_to_update.update(result['components'])
 
-                    if distro_settings['quota'] is not None:
-                        distro_settings = self.db.cacus.distros.find_one_and_update(
-                            {'distro': distro},
-                            {'$inc': {'quota_used': incoming_bytes}},
-                            return_document=ReturnDocument.AFTER,
-                            upsert=False)
-                        self.log.info("Updated quotas for distro %s: used %s out of %s", distro, distro_settings['quota_used'], distro_settings['quota'])
+                    distro_settings = self.db.cacus.distros.find_one_and_update(
+                        {'distro': distro},
+                        {'$inc': {'quota_used': incoming_bytes}},
+                        return_document=ReturnDocument.AFTER,
+                        upsert=False)
+                    self.log.info("Updated quotas for distro %s: used %s out of %s (incoming bytes: %s)",
+                                  distro, distro_settings['quota_used'], distro_settings['quota'], incoming_bytes)
 
                     self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
 
@@ -363,6 +366,47 @@ class RepoManager(common.Cacus):
         else:
             self.log.info("No changes made in '%s/%s', skipping metadata update", distro, comp)
         return debs
+
+    def _reupload_cleanup(self, distro, src_pkg, debs):
+        """ Check whether package is being reuploaded to distro and return size difference between two "versions" of package.
+        In case of reuploading, storage may collect orphaned blobs from previous versions of uploading package's file that should be removed.
+        Also, used quota should be increased only by difference between new package and old one.
+        NB too bad it's extra queries to DB while package uploading, but I don't see better way atm.
+        """
+        diff = 0
+
+        if src_pkg:
+            old_src = self.db.sources[distro].find_one({'Package': src_pkg['Package'], 'Version': src_pkg['Version']})
+            if old_src:
+                new_files = dict((x['name'], x) for x in src_pkg['files'])
+                for file in old_src['files']:
+                    fname = file['name']
+                    if fname in new_files:
+                        # new package contains same file, recalculate incoming bytes
+                        # incoming_bytes already contains new file size, so effective increment to incoming_bytes would by (new_size - old_size)
+                        diff += file['size']
+                        if file['storage_key'] != new_files[fname]['storage_key']:
+                            # file was replaced by new version but old still exist in storage, delete it
+                            try:
+                                self.log.debug("Removing old source %s", file['storage_key'])
+                                self.storage.delete(file['storage_key'])
+                            except Exception as e:
+                                self.log.error("Cannot delete old file %s: %s", file['storage_key'], e.message)
+
+        for deb in debs:
+            old_deb = self.db.packages[distro].find_one({'Package': deb['Package'], 'Version': deb['Version'], 'Architecture': deb['Architecture']})
+            if old_deb:
+                # same for debs - if there is older version, recalculate used space
+                diff += old_deb['meta']['size']
+                if old_deb['storage_key'] != deb['storage_key']:
+                    # file was replaced by new version but old still exist in storage, delete it
+                    try:
+                        self.log.debug("Removing old package %s", file['storage_key'])
+                        self.storage.delete(old_deb['storage_key'])
+                    except Exception as e:
+                        self.log.error("Cannot delete old file %s: %s", old_deb['storage_key'], e.message)
+
+        return diff
 
     def _update_packages(self, distro, comp, arch, now):
         """ Updates Packages index
@@ -435,6 +479,22 @@ class RepoManager(common.Cacus):
         # check whether previous index is not used by some snapshot and remove it from storage
         if old_component and 'sources_file' in old_component and old_component['sources_file'] != storage_key:
             self._delete_unused_index(distro, sources=old_component['sources_file'])
+
+    def recalculate_distro_quotas(self, distro):
+        """ Go through all packages and sources and recalculate used space
+        """
+        used_space = 0
+        with self.lock(distro):
+            used_space += sum(sum(f['size'] for f in src['files']) for src in self.db.sources[distro].find({}, {'files.size': 1}))
+            used_space += sum(deb['meta']['size'] for deb in self.db.packages[distro].find({}, {'meta.size': 1}))
+
+            d = self.db.cacus.distros.find_one_and_update({'distro': distro}, {'$set': {'quota_used': used_space}}, upsert=False, return_document=ReturnDocument.AFTER)
+            if not d:
+                raise common.NotFound("Distro {} was not found".format(distro))
+
+            self.log.info("Recalculated quotas for distro %s: %s bytes", distro, used_space)
+
+        return used_space
 
     def update_distro_metadata(self, distro, comps=None, arches=None):
         """ Updates distro's indices (Packages,Sources and Release file)

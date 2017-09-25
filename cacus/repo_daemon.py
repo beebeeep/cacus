@@ -139,8 +139,6 @@ class ApiRequestHandler(CacusRequestHandler):
             else:
                 if self.settings['manager'].config['repo_daemon'].get('reject_old_tokens', True):
                     raise Exception("Old token format, please renew")
-
-
         except Exception as e:
             self.set_status(401)
             self.write({'success': False, 'msg': str(e)})
@@ -305,6 +303,20 @@ class ReleaseHandler(CachedRequestHandler):
             self.write(doc['release_file'])
 
 
+class ApiDistroRecalculateQuotasHandler(ApiRequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        yield self._check_token(distro)
+        try:
+            used = yield self.settings['workers'].submit(self.settings['manager'].recalculate_distro_quotas, distro=distro)
+        except common.NotFound as e:
+            self.set_status(404)
+            self.write({'success': False, 'msg': e.message})
+            return
+        self.write({'success': True, 'msg': 'Recalculate complete, used quota is {}'.format(used)})
+
+
 class ApiDistroReindexHandler(ApiRequestHandler):
 
     @gen.coroutine
@@ -374,6 +386,7 @@ class ApiDistroShowHandler(ApiRequestHandler):
                     'packages': pkg_count,
                     'quota': d['quota'] if d['quota'] is not None else -1,
                     'quota_used': d['quota_used'],
+                    'retention': d.get('retention', 0),
                     'type': 'general',
                     'simple': d.get('simple', True),
                     'strict': d.get('strict', True),
@@ -722,6 +735,7 @@ def _make_app(config):
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
+    api_distro_recalculate_quotas_re = s['repo_base'] + r"/api/v1/distro/recalculate_quotas/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_snapshot_re = s['repo_base'] + r"/api/v1/distro/snapshot/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_show_re = s['repo_base'] + r"/api/v1/distro/show(?:/(?P<distro>[-_.A-Za-z0-9/]+))?$"
 
@@ -740,6 +754,7 @@ def _make_app(config):
         url(api_distro_create_re, ApiDistroCreateHandler),
         url(api_distro_remove_re, ApiDistroRemoveHandler),
         url(api_distro_reindex_re, ApiDistroReindexHandler),
+        url(api_distro_recalculate_quotas_re, ApiDistroRecalculateQuotasHandler),
         url(api_distro_snapshot_re, ApiDistroSnapshotHandler),
         url(api_distro_show_re, ApiDistroShowHandler),
         ])
