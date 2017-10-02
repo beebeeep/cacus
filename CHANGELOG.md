@@ -1,3 +1,6 @@
+## [Version 0.7.23](https://github.com/beebeeep/cacus/tree/v0.7.23) (2017-10-02)
+  * Added /api/v1/disto/update
+
 ## [Version 0.7.22](https://github.com/beebeeep/cacus/tree/v0.7.22) (2017-09-25)
   * Correct handling of package reupload
   * Added /api/v1/distro/recalculate_quotas

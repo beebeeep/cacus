@@ -15,38 +15,47 @@ import common
 
 class RepoManager(common.Cacus):
 
-    def create_distro(self, distro, description, components,  simple, strict=None, quota=None,
-                      gpg_check=None, incoming_wait_timeout=None, retention=None, gpg_key=None):
+    def create_distro(self, distro, description=None, components=None, simple=None, strict=None, quota=None,
+                      gpg_check=None, incoming_wait_timeout=None, retention=None, gpg_key=None, update_only=False):
         if gpg_key and not self._check_key(gpg_key):
             raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
+
+        params = {
+            'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
+            'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
+        }
+
+        if update_only:
+            if not self.db.cacus.distros.find_one({'distro': distro}, {'distro': 1}):
+                raise common.NotFound("Distro '{}' was not found".format(distro))
+
+            # remove parameters not explicitly specified
+            params = dict((k, v) for k, v in params.items() if v is not None)
+
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
             {
-                '$set': {
-                    'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
-                    'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
-                },
-                '$inc': {
-                    'quota_used': 0
-                }
+                '$set': params,
+                '$inc': {'quota_used': 0}
             },
             return_document=ReturnDocument.BEFORE,
             upsert=True)
-        self.log.info("%s distro '%s', simple: %s, components: %s", "Updated" if old_distro else "Created", distro, simple, ', '.join(components))
+        self.log.info("%s distro '%s'", "Updated" if old_distro else "Created", distro)
 
-        old_components = [x['component'] for x in self.db.cacus.components.find({'distro': distro}, {'component': 1})]
+        if components is not None:
+            # if distro components was changed: update "components" collection and search for components to delete
+            for comp in components:
+                self.db.cacus.components.find_one_and_update(
+                    {'distro': distro, 'component': comp},
+                    {'$set': {'distro': distro, 'component': comp}},
+                    upsert=True)
 
-        for comp in components:
-            self.db.cacus.components.find_one_and_update(
-                {'distro': distro, 'component': comp},
-                {'$set': {'distro': distro, 'component': comp}},
-                upsert=True)
-
-        to_delete = set(old_components) - set(components)
-        if to_delete:
-            with self.lock(distro, to_delete):
-                for deleted in to_delete:
-                    self._delete_component(distro, deleted)
+            old_components = [x['component'] for x in self.db.cacus.components.find({'distro': distro}, {'component': 1})]
+            to_delete = set(old_components) - set(components)
+            if to_delete:
+                with self.lock(distro, to_delete):
+                    for deleted in to_delete:
+                        self._delete_component(distro, deleted)
 
         self.create_packages_indexes(distros=[distro])
 
