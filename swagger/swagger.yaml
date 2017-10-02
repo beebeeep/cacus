@@ -381,7 +381,6 @@ paths:
         - name: distro_settings
           in: body
           description: Distro settings
-
           required: true
           schema:
             '$ref': '#/definitions/DistroSettings'
@@ -394,6 +393,39 @@ paths:
             $ref: '#/definitions/OperationResult'
         201:
           description: Distro successfully created
+          schema:
+            $ref: '#/definitions/OperationResult'
+        400:
+          description: Bad request arguments
+          schema:
+            $ref: '#/definitions/OperationResult'
+        409:
+          description: Distro lock failed
+          schema:
+            $ref: '#/definitions/OperationResult'
+
+  /distro/update/{distro}:
+    post:
+      summary: Update distro settings
+      description: |
+        Updates settings of existing distro. 
+      parameters:
+        - name: distro
+          in: path
+          description: Distribution name
+          required: true
+          type: string
+        - name: distro_settings
+          in: body
+          description: Distro settings
+          required: false
+          schema:
+            '$ref': '#/definitions/DistroSettings'
+      tags:
+        - Distros
+      responses:
+        200:
+          description: Distro settings successfully updated
           schema:
             $ref: '#/definitions/OperationResult'
         400:

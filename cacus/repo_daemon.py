@@ -480,6 +480,41 @@ class ApiDistroCreateHandler(ApiRequestHandler):
             self.write({'success': False, 'msg': e.message})
 
 
+class ApiDistroUpdateHandler(ApiRequestHandler):
+
+    @gen.coroutine
+    def post(self, distro):
+        yield self._check_token(distro)
+
+        req = self._get_json_request()
+        comps = req.get('components', None)
+        description = req.get('description', None)
+        simple = req.get('simple', None)
+        retention = req.get('retention', None)
+        gpg_key = req.get('gpg_key', None)
+        quota = req.get('quota', None)
+
+        if quota is not None:
+            # quota management is available only for admins
+            yield self._check_token(common.Cacus.admin_access)
+
+        if simple is not None and not simple:
+            gpg_check = req['gpg_check']
+            strict = req['strict']
+            incoming_wait_timeout = req['incoming_timeout']
+        else:
+            gpg_check = strict = incoming_wait_timeout = None
+
+        try:
+            yield self.settings['workers'].submit(self.settings['manager'].create_distro, update_only=True, distro=distro, description=description,
+                                                        components=comps, gpg_check=gpg_check, strict=strict, simple=simple, quota=quota,
+                                                        retention=retention, incoming_wait_timeout=incoming_wait_timeout, gpg_key=gpg_key)
+            self.set_status(200)
+            self.write({'success': True, 'msg': 'repo settings updated'})
+        except common.CacusError as e:
+            self.set_status(e.http_code)
+            self.write({'success': False, 'msg': e.message})
+
 class ApiDistroRemoveHandler(ApiRequestHandler):
 
     @gen.coroutine
@@ -733,6 +768,7 @@ def _make_app(config):
     api_pkg_search_re = s['repo_base'] + r"/api/v1/package/search(?:/(?P<distro>[-_.A-Za-z0-9]+))?$"
     # Distribution operations
     api_distro_create_re = s['repo_base'] + r"/api/v1/distro/create/(?P<distro>[-_.A-Za-z0-9]+)$"
+    api_distro_update_re = s['repo_base'] + r"/api/v1/distro/update/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_remove_re = s['repo_base'] + r"/api/v1/distro/remove/(?P<distro>[-_.A-Za-z0-9]+)$"
     api_distro_reindex_re = s['repo_base'] + r"/api/v1/distro/reindex/(?P<distro>[-_.A-Za-z0-9/]+)$"
     api_distro_recalculate_quotas_re = s['repo_base'] + r"/api/v1/distro/recalculate_quotas/(?P<distro>[-_.A-Za-z0-9/]+)$"
@@ -752,6 +788,7 @@ def _make_app(config):
         url(api_pkg_purge_re, ApiPkgPurgeHandler),
         url(api_pkg_search_re, ApiPkgSearchHandler),
         url(api_distro_create_re, ApiDistroCreateHandler),
+        url(api_distro_update_re, ApiDistroUpdateHandler),
         url(api_distro_remove_re, ApiDistroRemoveHandler),
         url(api_distro_reindex_re, ApiDistroReindexHandler),
         url(api_distro_recalculate_quotas_re, ApiDistroRecalculateQuotasHandler),
