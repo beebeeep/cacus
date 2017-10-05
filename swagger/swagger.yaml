@@ -782,9 +782,6 @@ definitions:
       arch:
         type: string
         description: Package architecture
-      from:
-        type: string
-        description: Name of source component
       to:
         type: string
         description: Name of destination component
