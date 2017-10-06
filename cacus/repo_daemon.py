@@ -339,7 +339,7 @@ class ApiDistroShowHandler(ApiRequestHandler):
         # (i.e all distros in case of privileged net or admin token)
         claim = yield self._check_token(distro)
         if distro:
-            if (claim['aud'] == common.Cacus.admin_access or 'privileged' in claim or distro in claim['aud']):
+            if ('privileged' in claim or claim['aud'] == common.Cacus.admin_access or distro in claim['aud']):
                 selector = {'distro': distro}
             else:
                 self.set_status(401)

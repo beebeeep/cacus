@@ -32,6 +32,10 @@ class RepoManager(common.Cacus):
             # remove parameters not explicitly specified
             params = dict((k, v) for k, v in params.items() if v is not None)
 
+        if params['quota'] < 0 :
+            # negative quota means no quota
+            params['quota'] = None
+
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
             {
