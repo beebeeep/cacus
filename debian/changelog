@@ -1,3 +1,12 @@
+cacus (0.7.24) unstable; urgency=medium
+
+  * Fixed auth issue in api/v1/distro/show
+  * Option to remove distro quota
+  * Show URL to .deb files in api/v1/package/search 
+  * Remove obsolete "to" parameter in api/v1/package/copy
+
+ -- Daniil Migalin <midanil@microsoft.com>  Fri, 06 Oct 2017 22:32:01 +0000
+
 cacus (0.7.23) unstable; urgency=medium
 
   * Added /api/v1/disto/update
