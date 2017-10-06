@@ -32,6 +32,10 @@ class RepoManager(common.Cacus):
             # remove parameters not explicitly specified
             params = dict((k, v) for k, v in params.items() if v is not None)
 
+        if params['quota'] < 0 :
+            # negative quota means no quota
+            params['quota'] = None
+
         old_distro = self.db.cacus.distros.find_one_and_update(
             {'distro': distro},
             {
@@ -707,17 +711,17 @@ class RepoManager(common.Cacus):
 
         return "Package {}_{} was removed from {}".format(pkg, ver, distro)
 
-    def copy_package(self, pkg=None, ver=None, arch=None, distro=None, src=None, dst=None, source_pkg=False, skipUpdateMeta=False):
+    def copy_package(self, pkg, ver, arch, distro, dst, source_pkg=False, skipUpdateMeta=False):
         affected_arches = []
         if not self.db.cacus.components.find_one({'distro': distro, 'component': dst}, {'_id': 1}):
             raise common.NotFound("Component '{}' was not found in distro '{}'".format(dst, distro))
 
         try:
-            with self.lock(distro, [src, dst]):
+            with self.lock(distro, [dst]):
                 if source_pkg:
                     # move source package (if any) and all binary packages within it
                     result = self.db.sources[distro].find_one_and_update(
-                        {'Package': pkg, 'Version': ver, 'components': src},
+                        {'Package': pkg, 'Version': ver},
                         {'$addToSet': {'components': dst}},
                         projection={'components': 1},
                         upsert=False,
@@ -737,7 +741,7 @@ class RepoManager(common.Cacus):
                         arch = {'$exists': True}
                     # touch only one specified package
                     result = self.db.packages[distro].find_one_and_update(
-                        {'Package': pkg, 'Version': ver, 'Architecture': arch, 'components': src},
+                        {'Package': pkg, 'Version': ver, 'Architecture': arch},
                         {'$addToSet': {'components': dst}},
                         projection={'components': 1, 'Architecture': 1, 'component': 1},
                         upsert=False,
@@ -745,7 +749,7 @@ class RepoManager(common.Cacus):
                     )
                     affected_arches = [result['Architecture']] if result else []
                 if not result:
-                    msg = "Cannot find package '{}_{}' in '{}/{}'".format(pkg, ver, distro, src)
+                    msg = "Cannot find package '{}_{}' in '{}'".format(pkg, ver, distro)
                     self.log.error(msg)
                     raise common.NotFound(msg)
                 elif dst in result['components']:
@@ -753,14 +757,14 @@ class RepoManager(common.Cacus):
                     self.log.warning(msg)
                     return msg
 
-                msg = "Package '{}_{}' was copied in distro '{}' from '{}' to '{}'".format(pkg, ver, distro, src, dst)
+                msg = "Package '{}_{}' was copied in distro '{}' to '{}'".format(pkg, ver, distro, dst)
                 self.log.info(msg)
 
                 if not skipUpdateMeta:
                     if 'all' in affected_arches:
                         affected_arches = None      # update all arches in case we have 'all' arch in scope
-                    self.log.info("Updating '%s' distro metadata for components %s and %s, arches: %s", distro, src, dst, affected_arches)
-                    self.update_distro_metadata(distro, [src, dst], affected_arches)
+                    self.log.info("Updating '%s' distro metadata for component %s, arches: %s", distro, dst, affected_arches)
+                    self.update_distro_metadata(distro, [dst], affected_arches)
                 return msg
         except common.DistroLockTimeout as e:
             raise common.TemporaryError(e.message)

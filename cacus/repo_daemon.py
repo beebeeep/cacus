@@ -339,7 +339,7 @@ class ApiDistroShowHandler(ApiRequestHandler):
         # (i.e all distros in case of privileged net or admin token)
         claim = yield self._check_token(distro)
         if distro:
-            if (claim['aud'] == common.Cacus.admin_access or 'privileged' in claim or distro in claim['aud']):
+            if ('privileged' in claim or claim['aud'] == common.Cacus.admin_access or distro in claim['aud']):
                 selector = {'distro': distro}
             else:
                 self.set_status(401)
@@ -384,8 +384,8 @@ class ApiDistroShowHandler(ApiRequestHandler):
                     'description': d['description'],
                     'lastupdated': d['lastupdated'].isoformat(),
                     'packages': pkg_count,
-                    'quota': d['quota'] if d['quota'] is not None else -1,
-                    'quota_used': d['quota_used'],
+                    'quota': d['quota'] if d.get('quota', None) is not None else -1,
+                    'quota_used': d.get('quota_used', -1),
                     'retention': d.get('retention', 0),
                     'type': 'general',
                     'simple': d.get('simple', True),
@@ -507,13 +507,14 @@ class ApiDistroUpdateHandler(ApiRequestHandler):
 
         try:
             yield self.settings['workers'].submit(self.settings['manager'].create_distro, update_only=True, distro=distro, description=description,
-                                                        components=comps, gpg_check=gpg_check, strict=strict, simple=simple, quota=quota,
-                                                        retention=retention, incoming_wait_timeout=incoming_wait_timeout, gpg_key=gpg_key)
+                                                  components=comps, gpg_check=gpg_check, strict=strict, simple=simple, quota=quota,
+                                                  retention=retention, incoming_wait_timeout=incoming_wait_timeout, gpg_key=gpg_key)
             self.set_status(200)
             self.write({'success': True, 'msg': 'repo settings updated'})
         except common.CacusError as e:
             self.set_status(e.http_code)
             self.write({'success': False, 'msg': e.message})
+
 
 class ApiDistroRemoveHandler(ApiRequestHandler):
 
@@ -620,13 +621,12 @@ class ApiPkgCopyHandler(ApiRequestHandler):
         pkg = req['pkg']
         ver = req['ver']
         arch = req.get('arch', None)
-        src = req['from']
         dst = req['to']
         source_pkg = req.get('source_pkg', False)
 
         try:
             r = yield self.settings['workers'].submit(self.settings['manager'].copy_package,
-                                                      distro=distro, pkg=pkg, ver=ver, arch=arch, src=src, dst=dst, source_pkg=source_pkg)
+                                                      distro=distro, pkg=pkg, ver=ver, arch=arch, dst=dst, source_pkg=source_pkg)
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
             self.set_status(e.http_code)
@@ -698,6 +698,7 @@ class ApiPkgSearchHandler(ApiRequestHandler):
     @gen.coroutine
     def _search(self, distro=None, pkg=None, ver=None, comp=None, descr=None, lang=None):
         db = self.settings['db']
+        config = self.settings['config']
         selector = {}
 
         if not pkg and not descr:
@@ -719,6 +720,7 @@ class ApiPkgSearchHandler(ApiRequestHandler):
             'Package': 1,
             'Version': 1,
             'Architecture': 1,
+            'storage_key': 1,
             'meta.Maintainer': 1,
             'meta.Description': 1,
             'components': 1
@@ -739,9 +741,11 @@ class ApiPkgSearchHandler(ApiRequestHandler):
                 pkg = cursor.next_object()
                 if pkg:
                     p = dict((k.lower(), v) for k, v in pkg.iteritems())
+                    p['url'] = os.path.join(config['repo_daemon']['storage_subdir'], p['storage_key'])
                     for k, v in pkg['meta'].iteritems():
                         p[k.lower()] = v
                     del p['meta']
+                    del p['storage_key']
                     pkgs[d].append(p)
 
         result = {'success': True, 'result': pkgs}

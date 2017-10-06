@@ -1,3 +1,9 @@
+## [Version 0.7.24](https://github.com/beebeeep/cacus/tree/v0.7.24) (2017-10-06)
+  * Fixed auth issue in api/v1/distro/show
+  * Option to remove distro quota
+  * Show URL to .deb files in api/v1/package/search 
+  * Remove obsolete "to" parameter in api/v1/package/copy
+
 ## [Version 0.7.23](https://github.com/beebeeep/cacus/tree/v0.7.23) (2017-10-02)
   * Added /api/v1/disto/update
 
