@@ -17,7 +17,6 @@ setup(
                       'pymongo>=3.0',
                       'motor>=1.0',
                       'tornado',
-                      'pyinotify',
                       'gnupg>=2.2',
                       'yapsy',
                       'futures',
@@ -27,6 +26,11 @@ setup(
                       'ipaddress',
                       'python-jose'
                       ],
+    extras_require={
+        'azure': ['azure-common', 'azure-storage'],
+        'incoming-dir': ['pyinotify'],
+        'consul': ['python-consul']
+    },
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
