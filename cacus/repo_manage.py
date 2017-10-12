@@ -11,6 +11,7 @@ from bson import binary
 from pymongo.collection import ReturnDocument
 
 import common
+import extras
 
 
 class RepoManager(common.Cacus):
@@ -141,7 +142,7 @@ class RepoManager(common.Cacus):
         for source in (x for x in sources if x):
             all_sources = sorted(self.db.sources[distro].find({'Package': source['Package'], 'components': comp},
                                                               {'Package': 1, 'Version': 1, '_id': 1, 'components': 1}),
-                                 key=lambda x: common.DebVersion(x['Version']))
+                                 key=lambda x: extras.DebVersion(x['Version']))
 
             if len(all_sources) > keep:
                 sources_to_delete.extend(all_sources[0:-keep])
@@ -150,7 +151,7 @@ class RepoManager(common.Cacus):
             all_debs = sorted(self.db.packages[distro].find({'Package': deb['Package'], 'components': comp,
                                                              'source': {'$nin': [x['_id'] for x in sources_to_delete]}},
                                                             {'Package': 1, 'Version': 1, 'Architecture': 1, 'components': 1}),
-                              key=lambda x: common.DebVersion(x['Version']))
+                              key=lambda x: extras.DebVersion(x['Version']))
             if len(all_debs) > keep:
                 debs_to_delete.extend(all_debs[0:-keep])
 

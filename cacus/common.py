@@ -13,7 +13,6 @@ import pymongo
 import hashlib
 import requests
 import logging
-import apt_pkg
 import logging.handlers
 
 from jose import jwt
@@ -77,32 +76,6 @@ class Conflict(CacusError):
 
 class DistroLockTimeout(CacusError):
     http_code = 409
-
-
-class DebVersion(object):
-    """ Just wrapper around apt_pkg.version_compare() """
-
-    def __init__(self, version):
-        apt_pkg.init_system()
-        self.version = version
-
-    def __eq__(self, x):
-        return apt_pkg.version_compare(self.version, x.version) == 0
-
-    def __ne__(self, x):
-        return not self == x
-
-    def __lt__(self, x):
-        return apt_pkg.version_compare(self.version, x.version) < 0
-
-    def __gt__(self, x):
-        return apt_pkg.version_compare(self.version, x.version) > 0
-
-    def __ge__(self, x):
-        return self == x or self > x
-
-    def __le__(self, x):
-        return self == x or self < x
 
 
 class Cacus(object):

@@ -21,7 +21,6 @@ setup(
                       'yapsy',
                       'futures',
                       'python-debian',
-                      'python-apt',
                       'chardet',
                       'ipaddress',
                       'python-jose'
