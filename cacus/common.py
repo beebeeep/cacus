@@ -24,7 +24,7 @@ from tornado.ioloop import IOLoop
 from ipaddress import ip_network
 from pymongo.collection import ReturnDocument
 
-import plugin
+from . import plugin
 
 consul = None       # optional module
 
@@ -161,7 +161,7 @@ class Cacus(object):
         # misc
         self.config['repo_daemon']['repo_base'] = self.config['repo_daemon']['repo_base'].rstrip('/')
         self.config['repo_daemon']['storage_subdir'] = self.config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
-        self.config['repo_daemon']['privileged_nets'] = [ip_network(unicode(x)) for x in self.config['repo_daemon']['privileged_nets']]
+        self.config['repo_daemon']['privileged_nets'] = [ip_network(x) for x in self.config['repo_daemon']['privileged_nets']]
 
     @staticmethod
     def load_config(config_file):

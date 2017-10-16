@@ -18,7 +18,7 @@ import urllib
 
 from debian import deb822
 
-import repo_manage
+from . import repo_manage
 
 
 class DistroImporter(repo_manage.RepoManager):

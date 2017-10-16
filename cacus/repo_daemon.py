@@ -17,8 +17,8 @@ from tornado import gen, httputil, httpserver, escape
 from concurrent.futures import ThreadPoolExecutor
 from ipaddress import ip_address
 
-import common
-import repo_manage
+from . import common
+from . import repo_manage
 
 
 access_log = logging.getLogger('tornado.access')
@@ -110,7 +110,7 @@ class ApiRequestHandler(CacusRequestHandler):
     def _check_token(self, aud):
         config = self.settings['manager'].config
 
-        ip = ip_address(unicode(self.request.remote_ip))
+        ip = ip_address(self.request.remote_ip)
         for net in config['repo_daemon']['privileged_nets']:
             if ip in net:
                 # no auth required
@@ -740,9 +740,9 @@ class ApiPkgSearchHandler(ApiRequestHandler):
             while (yield cursor.fetch_next):
                 pkg = cursor.next_object()
                 if pkg:
-                    p = dict((k.lower(), v) for k, v in pkg.iteritems())
+                    p = dict((k.lower(), v) for k, v in pkg.items())
                     p['url'] = os.path.join(config['repo_daemon']['storage_subdir'], p['storage_key'])
-                    for k, v in pkg['meta'].iteritems():
+                    for k, v in pkg['meta'].items():
                         p[k.lower()] = v
                     del p['meta']
                     del p['storage_key']

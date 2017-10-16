@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import os
+import io
 import hashlib
-import StringIO
+import functools
 from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
 from bson import binary
 from pymongo.collection import ReturnDocument
 
-import common
-import extras
+from . import common
+from . import extras
 
 
 class RepoManager(common.Cacus):
@@ -33,7 +34,7 @@ class RepoManager(common.Cacus):
             # remove parameters not explicitly specified
             params = dict((k, v) for k, v in params.items() if v is not None)
 
-        if params['quota'] < 0 :
+        if params['quota'] is not None and params['quota'] < 0 :
             # negative quota means no quota
             params['quota'] = None
 
@@ -547,16 +548,16 @@ class RepoManager(common.Cacus):
                 upsert=True)
 
     def _generate_sources_file(self, distro, comp):
-        data = StringIO.StringIO()
+        data = io.StringIO()
         component = self.db.sources[distro].find(
             {'components': comp, 'dsc': {'$exists': True}},
             {'dsc': 1, 'files': 1})
         for pkg in component:
-            for k, v in pkg['dsc'].iteritems():
+            for k, v in pkg['dsc'].items():
                 data.write("{0}: {1}\n".format(k.capitalize(), v))
             data.write("Directory: {}\n".format(self.config['repo_daemon']['storage_subdir']))
             # c-c-c-c-combo!
-            files = [x for x in pkg['files'] if reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
+            files = [x for x in pkg['files'] if functools.reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
 
             def gen_para(algo, files):
                 for f in files:
@@ -576,7 +577,7 @@ class RepoManager(common.Cacus):
 
     def _generate_packages_file(self, distro, comp, arch):
         self.log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
-        data = StringIO.StringIO()
+        data = io.StringIO()
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         repo = self.db.packages[distro].find({'components': comp, 'Architecture': {'$in': [arch, 'all']}})
         for pkg in repo:
@@ -585,7 +586,7 @@ class RepoManager(common.Cacus):
                 path = os.path.join(self.config['repo_daemon']['storage_subdir'], path)
             data.write("Filename: {0}\n".format(path))
 
-            for k, v in pkg['meta'].iteritems():
+            for k, v in pkg['meta'].items():
                 if k == 'md5':
                     string = "MD5sum: {0}\n".format(hexlify(v))
                 elif k == 'sha1':
