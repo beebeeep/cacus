@@ -166,7 +166,7 @@ class RepoManager(common.Cacus):
                                 source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True, purge=True)
 
     def _process_deb_file(self, file):
-        with open(file) as f:
+        with open(file, 'rb') as f:
             hashes = self.get_hashes(file=f)
 
         doc = {
@@ -187,7 +187,7 @@ class RepoManager(common.Cacus):
         return doc, hashes
 
     def _process_source_file(self, file):
-        with open(file) as f:
+        with open(file, 'rb') as f:
             hashes = self.get_hashes(file=f)
 
         filename = os.path.basename(file)
@@ -202,7 +202,7 @@ class RepoManager(common.Cacus):
                 'md5': binary.Binary(hashes['md5'].digest())
                 }
         if file.endswith('.dsc'):
-            with open(file) as f:
+            with open(file, 'rb') as f:
                 dsc = deb822.Dsc(f)
                 dsc = dict((k, v) for k, v in dsc.items() if not k.startswith('Checksums-') and k != 'Files')
 
@@ -548,61 +548,61 @@ class RepoManager(common.Cacus):
                 upsert=True)
 
     def _generate_sources_file(self, distro, comp):
-        data = io.StringIO()
+        data = io.BytesIO()
         component = self.db.sources[distro].find(
             {'components': comp, 'dsc': {'$exists': True}},
             {'dsc': 1, 'files': 1})
         for pkg in component:
             for k, v in pkg['dsc'].items():
-                data.write("{0}: {1}\n".format(k.capitalize(), v))
-            data.write("Directory: {}\n".format(self.config['repo_daemon']['storage_subdir']))
+                data.write("{0}: {1}\n".format(k.capitalize(), v).encode())
+            data.write("Directory: {}\n".format(self.config['repo_daemon']['storage_subdir']).encode())
             # c-c-c-c-combo!
             files = [x for x in pkg['files'] if functools.reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
 
             def gen_para(algo, files):
                 for f in files:
-                    data.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']))
+                    data.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']).encode())
 
-            data.write("Files: \n")
+            data.write(b"Files: \n")
             gen_para('md5', files)
-            data.write("Checksums-Sha1: \n")
+            data.write(b"Checksums-Sha1: \n")
             gen_para('sha1', files)
-            data.write("Checksums-Sha256: \n")
+            data.write(b"Checksums-Sha256: \n")
             gen_para('sha256', files)
 
-            data.write("\n")
+            data.write(b"\n")
         # to prevent generating of empty file
-        data.write("\n")
+        data.write(b"\n")
         return data
 
     def _generate_packages_file(self, distro, comp, arch):
         self.log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
-        data = io.StringIO()
+        data = io.BytesIO()
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         repo = self.db.packages[distro].find({'components': comp, 'Architecture': {'$in': [arch, 'all']}})
         for pkg in repo:
             path = pkg['storage_key']
             if not path.startswith('extstorage'):
                 path = os.path.join(self.config['repo_daemon']['storage_subdir'], path)
-            data.write("Filename: {0}\n".format(path))
+            data.write("Filename: {0}\n".format(path).encode())
 
             for k, v in pkg['meta'].items():
                 if k == 'md5':
-                    string = "MD5sum: {0}\n".format(hexlify(v))
+                    string = "MD5sum: {0}\n".format(hexlify(v).decode())
                 elif k == 'sha1':
-                    string = "SHA1: {0}\n".format(hexlify(v))
+                    string = "SHA1: {0}\n".format(hexlify(v).decode())
                 elif k == 'sha256':
-                    string = "SHA256: {0}\n".format(hexlify(v))
+                    string = "SHA256: {0}\n".format(hexlify(v).decode())
                 elif k == 'sha512':
-                    string = "SHA512: {0}\n".format(hexlify(v))
+                    string = "SHA512: {0}\n".format(hexlify(v).decode())
                 elif not v:
                     continue
                 else:
-                    string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
-                data.write(string)
-            data.write("\n")
+                    string = "{0}: {1}\n".format(k.capitalize(), v)
+                data.write(string.encode())
+            data.write(b"\n")
         # to prevent generating of empty file
-        data.write("\n")
+        data.write(b"\n")
         return data
 
     def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, purge=False, skipUpdateMeta=False, locked=False):

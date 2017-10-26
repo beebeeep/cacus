@@ -23,7 +23,7 @@ def test_upload_source(full_distro, duploader, deb_pkg):
     incoming = os.path.join(duploader.config['duploader_daemon']['incoming_root'],
                             full_distro['distro'], comp)
     for file in deb_pkg['files']:
-        print file
+        print(file)
         copy(file, incoming)
     time.sleep(5)
     assert package_is_in_repo(duploader, deb_pkg['control'], full_distro['distro'], comp)

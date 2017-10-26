@@ -5,11 +5,11 @@ import time
 import logging
 
 class MyLogger(logging.getLoggerClass()):
-    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
+    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None, sinfo=None):
         if not extra:
             extra = {}
         extra['user'] = 'Test'
-        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
+        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func=func, extra=extra, sinfo=None)
 
 logging.setLoggerClass(MyLogger)
 

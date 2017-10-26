@@ -286,7 +286,7 @@ class Cacus(object):
         # XXX: This is pretty fat function, but I have no idea how to optimize it - my tests shows that
         # it's almost as fast as "openssl [md5,sha1,sha256,sha256]", despite it's pretty straightforward approach
         if filename:
-            file = open(filename)
+            file = open(filename, "rb")
 
         md5 = hashlib.md5()
         sha1 = hashlib.sha1()
@@ -323,7 +323,7 @@ class Cacus(object):
                 _md5 = hashlib.md5()
                 _sha1 = hashlib.sha1()
                 _sha256 = hashlib.sha256()
-                with open(filename, 'w') as f:
+                with open(filename, 'wb') as f:
                     for chunk in r.iter_content(4*1024*1024):
                         total_bytes += len(chunk)
                         f.write(chunk)
@@ -563,7 +563,7 @@ def with_retries(attempts, delays, fun, *args, **kwargs):
     # repeat last delay infinitely
     delays = chain(delays[:-1], repeat(delays[-1]))
     exc = Exception("Don't blink!")
-    for attempt in xrange(attempts):
+    for attempt in range(attempts):
         try:
             result = fun(*args, **kwargs)
         except (Timeout, TemporaryError, DistroLockTimeout) as e:
