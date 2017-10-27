@@ -312,7 +312,7 @@ class ApiDistroRecalculateQuotasHandler(ApiRequestHandler):
             used = yield self.settings['workers'].submit(self.settings['manager'].recalculate_distro_quotas, distro=distro)
         except common.NotFound as e:
             self.set_status(404)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
             return
         self.write({'success': True, 'msg': 'Recalculate complete, used quota is {}'.format(used)})
 
@@ -326,7 +326,7 @@ class ApiDistroReindexHandler(ApiRequestHandler):
             yield self.settings['workers'].submit(self.settings['manager'].update_distro_metadata, distro=distro)
         except common.NotFound as e:
             self.set_status(404)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
             return
         self.write({'success': True, 'msg': 'Reindex complete'})
 
@@ -420,7 +420,7 @@ class ApiDistroSnapshotHandler(ApiRequestHandler):
             msg = yield self.settings['workers'].submit(self.settings['manager'].delete_snapshot, distro=distro, name=snapshot)
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
             return
         self.write({'success': True, 'msg': msg})
 
@@ -435,7 +435,7 @@ class ApiDistroSnapshotHandler(ApiRequestHandler):
                                                         distro=distro, name=snapshot_name, from_snapshot=from_snapshot)
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
             return
         self.write({'success': True, 'msg': msg})
 
@@ -477,7 +477,7 @@ class ApiDistroCreateHandler(ApiRequestHandler):
                 self.write({'success': True, 'msg': 'repo settings updated'})
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
 
 
 class ApiDistroUpdateHandler(ApiRequestHandler):
@@ -513,7 +513,7 @@ class ApiDistroUpdateHandler(ApiRequestHandler):
             self.write({'success': True, 'msg': 'repo settings updated'})
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
 
 
 class ApiDistroRemoveHandler(ApiRequestHandler):
@@ -529,7 +529,7 @@ class ApiDistroRemoveHandler(ApiRequestHandler):
             msg = yield self.settings['workers'].submit(self.settings['manager'].remove_distro, distro)
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
             return
         self.write({'success': True, 'msg': msg})
 
@@ -554,9 +554,9 @@ class ApiPkgUploadHandler(ApiRequestHandler):
         try:
             self._file = open(self._filename, 'w')
         except Exception as e:
-            app_log.error("Cannot open temporary file: %s", e.message)
+            app_log.error("Cannot open temporary file: %s", str(e))
             self.set_status(500)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
             self.finish()
 
     def on_finish(self):
@@ -599,17 +599,17 @@ class ApiPkgUploadHandler(ApiRequestHandler):
 
         except common.NotFound as e:
             self.set_status(404)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
         except common.TemporaryError as e:
             # TODO retries
             # timeout on dmove can only if we cannot lock the distro,
             # i.e. there is some other operation processing current distro
             self.set_status(409)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
         except (common.FatalError, Exception) as e:
-            app_log.error("Erorr processing incoming package: %s", e.message)
+            app_log.error("Erorr processing incoming package: %s", str(e))
             self.set_status(400)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
 
 
 class ApiPkgCopyHandler(ApiRequestHandler):
@@ -630,7 +630,7 @@ class ApiPkgCopyHandler(ApiRequestHandler):
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
 
 
 class ApiPkgRemoveHandler(ApiRequestHandler):
@@ -650,7 +650,7 @@ class ApiPkgRemoveHandler(ApiRequestHandler):
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
 
 
 class ApiPkgPurgeHandler(ApiRequestHandler):
@@ -669,7 +669,7 @@ class ApiPkgPurgeHandler(ApiRequestHandler):
             self.write({'success': True, 'msg': r})
         except common.CacusError as e:
             self.set_status(e.http_code)
-            self.write({'success': False, 'msg': e.message})
+            self.write({'success': False, 'msg': str(e)})
 
 
 class ApiPkgSearchHandler(ApiRequestHandler):
