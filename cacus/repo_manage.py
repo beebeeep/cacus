@@ -23,7 +23,7 @@ class RepoManager(common.Cacus):
             raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
 
         params = {
-            'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
+            'components': components, 'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
             'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
         }
 
@@ -34,7 +34,7 @@ class RepoManager(common.Cacus):
             # remove parameters not explicitly specified
             params = dict((k, v) for k, v in params.items() if v is not None)
 
-        if params['quota'] is not None and params['quota'] < 0 :
+        if 'quota' in params and params['quota'] is not None and params['quota'] < 0 :
             # negative quota means no quota
             params['quota'] = None
 
