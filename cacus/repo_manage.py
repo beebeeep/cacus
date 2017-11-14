@@ -23,9 +23,12 @@ class RepoManager(common.Cacus):
             raise common.CacusError("Cannot find key {} in keychain".format(gpg_key))
 
         params = {
-            'components': components, 'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
+            'gpg_check': gpg_check, 'strict': strict, 'simple': simple, 'retention': retention, 'quota': quota,
             'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
         }
+
+        # dummy modification to ensure params is not empty as mongo doesn't like {'$set': {} }
+        params['distro'] = distro
 
         if update_only:
             if not self.db.cacus.distros.find_one({'distro': distro}, {'distro': 1}):
@@ -66,6 +69,7 @@ class RepoManager(common.Cacus):
         self.create_packages_indexes(distros=[distro])
 
         # even empty distro deserves to have proper Release file and Package&Sources indices
+        # (actually, empty distro generates empty indices and APT is bitching about that, but at least not fails with 404)
         try:
             with self.lock(distro):
                 self.update_distro_metadata(distro)

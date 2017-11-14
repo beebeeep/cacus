@@ -21,6 +21,8 @@ logging:
     file: /tmp/cacus-access.log
 
 db:
+  # possible values for 'implementation': 'mongo' (usual mongodb) or 'cosmos' (Azure CosmosDB with mongodb API enabled
+  implementation: mongo     
   # threat this subtree as kwargs to pymongo.MongoClient(),
   # for example, add replicaSet option if you want to connect to replicaset 
   host: 
@@ -52,10 +54,10 @@ retry_count: 3
 retry_delays: [2, 5, 10, 30, 60, 90]
 
 lock:
-  method: mongo
+  method: mongo         # also 'consul' is supported
+  connection: {}        # optional kwargs for consul.Consul() (ignored for mongo lock)
   ttl: 600
 
 # additional plugins
 plugin_path:
   - /opt/cacus/plugins
-

@@ -48,13 +48,16 @@ def distro_gen(repo_manager):
 
     return Generator()
 
+
 @pytest.fixture
 def distro(distro_gen):
     return distro_gen.get()
 
+
 @pytest.fixture
 def full_distro(distro_gen):
     return distro_gen.get(simple=False, strict=True)
+
 
 @pytest.yield_fixture(scope='session')
 def storage():
@@ -72,7 +75,7 @@ def cacus_config(request, storage):
     config = {
         'duploader_daemon': {'incoming_root': os.path.join(storage, 'incoming')},
         'gpg': {'home': '~/.gnupg', 'sign_key': keyid},
-        'lock': {'method': 'consul', 'settings': {}, 'ttl': 300},
+        'lock': {'method': 'mongo', 'ttl': 300},
         'logging': {
             'app': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
             'access': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
@@ -81,7 +84,7 @@ def cacus_config(request, storage):
         'plugin_path': ['/opt/cacus/plugins', os.path.join(os.path.dirname(__file__), '../../plugins')],
         'repo_daemon': {
             'port': 8088, 'proxy_storage': True, 'repo_base': '/debian', 'storage_subdir': '',
-            'privileged_nets': [ '128.0.0.0/8' ], 'auth_secret': 'DLBcyOXUuRK0VFygWDe2+iXAihV6vHVNurasw38Rc+Q='
+            'privileged_nets': ['128.0.0.0/8'], 'auth_secret': 'DLBcyOXUuRK0VFygWDe2+iXAihV6vHVNurasw38Rc+Q='
         },
         'retry_count': 3,
         'retry_delays': [2, 5, 10, 30, 60, 90],
