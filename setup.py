@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="cacus",
-    version="0.7.24",
+    version="0.8.1",
     author="Danila Migalin",
     author_email="me@miga.me.uk",
     url="https://github.com/beebeeep/cacus",
@@ -12,6 +12,7 @@ setup(
     long_description="",
     license="MIT",
     packages=["cacus"],
+    python_requires=">=3.4",
     install_requires=['PyYAML',
                       'requests',
                       'pymongo>=3.0',
