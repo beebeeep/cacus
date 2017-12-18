@@ -80,7 +80,7 @@ def test_copy_remove_package(distro, repo_manager, deb_pkg):
     src = distro['components'][0]
     dst = distro['components'][1]
     deb = repo_manager.upload_package(distro['distro'], src, [deb_pkg['debfile']], None)[0]
-    repo_manager.copy_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], src, dst)
+    repo_manager.copy_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], dst)
     assert package_is_in_repo(repo_manager, deb, distro['distro'], dst)
     repo_manager.remove_package(deb['Package'], deb['Version'], deb['Architecture'], distro['distro'], dst)
     assert not package_is_in_repo(repo_manager, deb, distro['distro'], dst)
