@@ -1,3 +1,6 @@
+## [Version 0.7.25](https://github.com/beebeeep/cacus/tree/v0.7.25) (2017-12-13)
+  * Do not reindex repo while applying retention policy
+
 ## [Version 0.7.24](https://github.com/beebeeep/cacus/tree/v0.7.24) (2017-10-06)
   * Fixed auth issue in api/v1/distro/show
   * Option to remove distro quota
