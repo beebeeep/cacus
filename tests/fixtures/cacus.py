@@ -72,7 +72,7 @@ def cacus_config(request, storage):
     config = {
         'duploader_daemon': {'incoming_root': os.path.join(storage, 'incoming')},
         'gpg': {'home': '~/.gnupg', 'sign_key': keyid},
-        'lock': {'method': 'consul', 'settings': {}, 'ttl': 300},
+        'lock': {'method': 'mongo', 'settings': {}, 'ttl': 300},
         'logging': {
             'app': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},
             'access': {'console': False, 'file': '/tmp/cacus-test.log', 'syslog': False},

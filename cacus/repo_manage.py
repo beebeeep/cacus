@@ -367,7 +367,7 @@ class RepoManager(common.Cacus):
                     self.log.info("Updated quotas for distro %s: used %s out of %s (incoming bytes: %s)",
                                   distro, distro_settings['quota_used'], distro_settings['quota'], incoming_bytes)
 
-                    self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=skipUpdateMeta)
+                    self._apply_retention_policy(distro, comp, sources=[src_pkg], debs=debs, skipUpdateMeta=True)
 
                     if not skipUpdateMeta:
                         if 'all' in affected_arches:
