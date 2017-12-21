@@ -3,7 +3,7 @@ cacus (0.8.1) unstable; urgency=medium
   * Migrated to python3, removed some libs poorly supported
   * Fixed distro settings update via api/v1/distro/create
 
- -- Daniil Migalin <midanil@microsoft.com>  Wed, 15 Nov 2017 21:50:58 +0000
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Wed, 15 Nov 2017 21:50:58 +0000
 
 cacus (0.7.24) unstable; urgency=medium
 
@@ -12,7 +12,7 @@ cacus (0.7.24) unstable; urgency=medium
   * Show URL to .deb files in api/v1/package/search 
   * Remove obsolete "to" parameter in api/v1/package/copy
 
- -- Daniil Migalin <midanil@microsoft.com>  Fri, 06 Oct 2017 22:32:01 +0000
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Fri, 06 Oct 2017 22:32:01 +0000
 
 cacus (0.7.23) unstable; urgency=medium
 

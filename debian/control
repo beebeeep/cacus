@@ -7,7 +7,7 @@ Standards-Version: 3.9.1
 
 Package: python3-cacus
 Architecture: all
-Depends: ${misc:Depends}, ${python3:Depends}, python3-pymongo (>= 3.0), python3-motor (>= 1.0), python3-gnupg (>= 2.2)
+Depends: ${misc:Depends}, ${python3:Depends}, python3-pymongo (>= 3.0), python3-motor (>= 1.0), python3-gnupg (>= 2.2), python3-backports-abc
 Description: Distributed Debian repository manager
 
 Package: python3-cacus-file-storage
