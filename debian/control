@@ -2,20 +2,20 @@ Source: cacus
 Maintainer: Danila Migalin <me@miga.me.uk>
 Section: python
 Priority: optional
-Build-Depends: python-setuptools (>= 0.6b3), python-all (>= 2.6.6-3), debhelper (>= 7.4.3)
+Build-Depends: python3-setuptools, python3, debhelper (>= 7.4.3)
 Standards-Version: 3.9.1
 
-Package: python-cacus
+Package: python3-cacus
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends}, python-pymongo (>= 3.0), python-motor (>= 1.0), python-gnupg (>= 2.2)
+Depends: ${misc:Depends}, ${python3:Depends}, python3-pymongo (>= 3.0), python3-motor (>= 1.0), python3-gnupg (>= 2.2), python3-backports-abc
 Description: Distributed Debian repository manager
 
-Package: python-cacus-file-storage
+Package: python3-cacus-file-storage
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends}, python-cacus
+Depends: ${misc:Depends}, ${python3:Depends}, python3-cacus
 Description: File Storage plugin for Cacus
 
-Package: python-cacus-azure-storage
+Package: python3-cacus-azure-storage
 Architecture: all
-Depends: ${misc:Depends}, ${python:Depends}, python-cacus, python-requests, python-azure-storage (>= 0.32), python-azure-common (>= 1.1.4)
+Depends: ${misc:Depends}, ${python3:Depends}, python3-cacus, python3-requests, python3-azure-storage (>= 0.32), python3-azure-common (>= 1.1.4)
 Description: File Storage plugin for Cacus

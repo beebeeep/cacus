@@ -12,11 +12,11 @@ import traceback
 class MyLogger(logging.getLoggerClass()):
     user = None
 
-    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None):
+    def makeRecord(self, name, lvl, fn, lno, msg, args, exc_info, func=None, extra=None, sinfo=None):
         if not extra:
             extra = {}
         extra['user'] = self.user or 'N/A'
-        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func, extra)
+        return super(MyLogger, self).makeRecord(name, lvl, fn, lno, msg, args, exc_info, func=func, extra=extra, sinfo=None)
 
     def error(self, msg, *args, **kwargs):
         if sys.exc_info()[0]:
@@ -30,11 +30,10 @@ class MyLogger(logging.getLoggerClass()):
 
 logging.setLoggerClass(MyLogger)
 
-import common
-import repo_manage
-import repo_daemon
-import duploader
-import distro_import
+from . import repo_manage
+from . import repo_daemon
+from . import duploader
+from . import distro_import
 
 env_choices = ['unstable', 'testing', 'prestable', 'stable']
 
@@ -98,9 +97,9 @@ def main():
 
         manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
         token = manager.generate_token(args.gen_token, args.expire, args.distro)
-        print "Generated token for '{}' with {}; valid for {} days:\n{}".format(
+        print("Generated token for '{}' with {}; valid for {} days:\n{}".format(
             args.gen_token, 'access to distros: ' + ', '.join(args.distro) if args.distro else 'ROOT access',
-            args.expire, token)
+            args.expire, token))
     elif args.revoke_token:
         manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
         if manager.revoke_token(args.revoke_token):
@@ -112,7 +111,7 @@ def main():
         manager.print_tokens()
     elif args.get_token:
         manager = repo_manage.RepoManager(config_file=args.config, quiet=True)
-        print manager.get_token(args.get_token)
+        print(manager.get_token(args.get_token))
     else:
         # default action is to start both duploader daemon and repo daemon
         from multiprocessing import Process

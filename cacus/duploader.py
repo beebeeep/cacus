@@ -6,13 +6,13 @@ import sys
 import signal
 import threading
 import time
-import Queue
+import queue
 
 import pyinotify
 from debian import deb822
 
-import common
-import repo_manage
+from . import common
+from . import repo_manage
 
 
 class ComplexDistroWatcher(pyinotify.ProcessEvent):
@@ -166,7 +166,7 @@ class SimpleDistroWatcher(pyinotify.ProcessEvent):
         self.distro = settings['distro']
         self.component = component
         self.log = repo_manager.log
-        self.queue = Queue.Queue()
+        self.queue = queue.Queue()
         self.worker = threading.Thread(target=self._worker)
         self.worker.daemon = True
         self.worker.start()
@@ -238,7 +238,7 @@ class Duploader(repo_manage.RepoManager):
                             try:
                                 if not os.path.isdir(incoming_dir):
                                     self.log.debug("Creating incoming dir '%s'", incoming_dir)
-                                    os.makedirs(incoming_dir, mode=0777)
+                                    os.makedirs(incoming_dir, mode=0o777)
                             except Exception as e:
                                 self.log.error("Cannot create dir for incoming files '%s': %s", incoming_dir, e)
                                 continue

@@ -79,7 +79,7 @@ class FileStorage(IStoragePlugin):
             if not os.path.isfile(fname):
                 raise common.NotFound('File not found')
             else:
-                f = open(fname, 'r')
+                f = open(fname, 'rb')
         except common.NotFound:
             raise
         except Exception as e:

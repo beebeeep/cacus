@@ -2,15 +2,17 @@
 # -*- coding: utf-8 -*-
 
 import os
+import io
 import hashlib
-import StringIO
+import functools
 from debian import debfile, deb822
 from binascii import hexlify
 from datetime import datetime
 from bson import binary
 from pymongo.collection import ReturnDocument
 
-import common
+from . import common
+from . import extras
 
 
 class RepoManager(common.Cacus):
@@ -25,6 +27,9 @@ class RepoManager(common.Cacus):
             'description': description, 'incoming_wait_timeout': incoming_wait_timeout, 'gpg_key': gpg_key
         }
 
+        # dummy modification to ensure params is not empty as mongo doesn't like {'$set': {} }
+        params['distro'] = distro
+
         if update_only:
             if not self.db.cacus.distros.find_one({'distro': distro}, {'distro': 1}):
                 raise common.NotFound("Distro '{}' was not found".format(distro))
@@ -32,7 +37,7 @@ class RepoManager(common.Cacus):
             # remove parameters not explicitly specified
             params = dict((k, v) for k, v in params.items() if v is not None)
 
-        if params['quota'] < 0 :
+        if 'quota' in params and params['quota'] is not None and params['quota'] < 0 :
             # negative quota means no quota
             params['quota'] = None
 
@@ -64,6 +69,7 @@ class RepoManager(common.Cacus):
         self.create_packages_indexes(distros=[distro])
 
         # even empty distro deserves to have proper Release file and Package&Sources indices
+        # (actually, empty distro generates empty indices and APT is bitching about that, but at least not fails with 404)
         try:
             with self.lock(distro):
                 self.update_distro_metadata(distro)
@@ -141,7 +147,7 @@ class RepoManager(common.Cacus):
         for source in (x for x in sources if x):
             all_sources = sorted(self.db.sources[distro].find({'Package': source['Package'], 'components': comp},
                                                               {'Package': 1, 'Version': 1, '_id': 1, 'components': 1}),
-                                 key=lambda x: common.DebVersion(x['Version']))
+                                 key=lambda x: extras.DebVersion(x['Version']))
 
             if len(all_sources) > keep:
                 sources_to_delete.extend(all_sources[0:-keep])
@@ -150,7 +156,7 @@ class RepoManager(common.Cacus):
             all_debs = sorted(self.db.packages[distro].find({'Package': deb['Package'], 'components': comp,
                                                              'source': {'$nin': [x['_id'] for x in sources_to_delete]}},
                                                             {'Package': 1, 'Version': 1, 'Architecture': 1, 'components': 1}),
-                              key=lambda x: common.DebVersion(x['Version']))
+                              key=lambda x: extras.DebVersion(x['Version']))
             if len(all_debs) > keep:
                 debs_to_delete.extend(all_debs[0:-keep])
 
@@ -164,7 +170,7 @@ class RepoManager(common.Cacus):
                                 source_pkg=False, skipUpdateMeta=skipUpdateMeta, locked=True, purge=True)
 
     def _process_deb_file(self, file):
-        with open(file) as f:
+        with open(file, 'rb') as f:
             hashes = self.get_hashes(file=f)
 
         doc = {
@@ -185,7 +191,7 @@ class RepoManager(common.Cacus):
         return doc, hashes
 
     def _process_source_file(self, file):
-        with open(file) as f:
+        with open(file, 'rb') as f:
             hashes = self.get_hashes(file=f)
 
         filename = os.path.basename(file)
@@ -200,7 +206,7 @@ class RepoManager(common.Cacus):
                 'md5': binary.Binary(hashes['md5'].digest())
                 }
         if file.endswith('.dsc'):
-            with open(file) as f:
+            with open(file, 'rb') as f:
                 dsc = deb822.Dsc(f)
                 dsc = dict((k, v) for k, v in dsc.items() if not k.startswith('Checksums-') and k != 'Files')
 
@@ -546,61 +552,61 @@ class RepoManager(common.Cacus):
                 upsert=True)
 
     def _generate_sources_file(self, distro, comp):
-        data = StringIO.StringIO()
+        data = io.BytesIO()
         component = self.db.sources[distro].find(
             {'components': comp, 'dsc': {'$exists': True}},
             {'dsc': 1, 'files': 1})
         for pkg in component:
-            for k, v in pkg['dsc'].iteritems():
-                data.write("{0}: {1}\n".format(k.capitalize(), v))
-            data.write("Directory: {}\n".format(self.config['repo_daemon']['storage_subdir']))
+            for k, v in pkg['dsc'].items():
+                data.write("{0}: {1}\n".format(k.capitalize(), v).encode())
+            data.write("Directory: {}\n".format(self.config['repo_daemon']['storage_subdir']).encode())
             # c-c-c-c-combo!
-            files = [x for x in pkg['files'] if reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
+            files = [x for x in pkg['files'] if functools.reduce(lambda a, n: a or x['name'].endswith(n), ['tar.gz', 'tar.xz', '.dsc'], False)]
 
             def gen_para(algo, files):
                 for f in files:
-                    data.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']))
+                    data.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']).encode())
 
-            data.write("Files: \n")
+            data.write(b"Files: \n")
             gen_para('md5', files)
-            data.write("Checksums-Sha1: \n")
+            data.write(b"Checksums-Sha1: \n")
             gen_para('sha1', files)
-            data.write("Checksums-Sha256: \n")
+            data.write(b"Checksums-Sha256: \n")
             gen_para('sha256', files)
 
-            data.write("\n")
+            data.write(b"\n")
         # to prevent generating of empty file
-        data.write("\n")
+        data.write(b"\n")
         return data
 
     def _generate_packages_file(self, distro, comp, arch):
         self.log.debug("Generating Packages for %s/%s/%s", distro, comp, arch)
-        data = StringIO.StringIO()
+        data = io.BytesIO()
         # see https://wiki.debian.org/RepositoryFormat#Architectures - 'all' arch goes with other arhes' Packages index
         repo = self.db.packages[distro].find({'components': comp, 'Architecture': {'$in': [arch, 'all']}})
         for pkg in repo:
             path = pkg['storage_key']
             if not path.startswith('extstorage'):
                 path = os.path.join(self.config['repo_daemon']['storage_subdir'], path)
-            data.write("Filename: {0}\n".format(path))
+            data.write("Filename: {0}\n".format(path).encode())
 
-            for k, v in pkg['meta'].iteritems():
+            for k, v in pkg['meta'].items():
                 if k == 'md5':
-                    string = "MD5sum: {0}\n".format(hexlify(v))
+                    string = "MD5sum: {0}\n".format(hexlify(v).decode())
                 elif k == 'sha1':
-                    string = "SHA1: {0}\n".format(hexlify(v))
+                    string = "SHA1: {0}\n".format(hexlify(v).decode())
                 elif k == 'sha256':
-                    string = "SHA256: {0}\n".format(hexlify(v))
+                    string = "SHA256: {0}\n".format(hexlify(v).decode())
                 elif k == 'sha512':
-                    string = "SHA512: {0}\n".format(hexlify(v))
+                    string = "SHA512: {0}\n".format(hexlify(v).decode())
                 elif not v:
                     continue
                 else:
-                    string = "{0}: {1}\n".format(k.capitalize().encode('utf-8'), unicode(v).encode('utf-8'))
-                data.write(string)
-            data.write("\n")
+                    string = "{0}: {1}\n".format(k.capitalize(), v)
+                data.write(string.encode())
+            data.write(b"\n")
         # to prevent generating of empty file
-        data.write("\n")
+        data.write(b"\n")
         return data
 
     def remove_package(self, pkg=None,  ver=None, arch=None, distro=None, comp=None, source_pkg=False, purge=False, skipUpdateMeta=False, locked=False):

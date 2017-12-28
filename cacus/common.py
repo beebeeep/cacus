@@ -13,7 +13,6 @@ import pymongo
 import hashlib
 import requests
 import logging
-import apt_pkg
 import logging.handlers
 
 from jose import jwt
@@ -25,7 +24,7 @@ from tornado.ioloop import IOLoop
 from ipaddress import ip_network
 from pymongo.collection import ReturnDocument
 
-import plugin
+from . import plugin
 
 consul = None       # optional module
 
@@ -77,32 +76,6 @@ class Conflict(CacusError):
 
 class DistroLockTimeout(CacusError):
     http_code = 409
-
-
-class DebVersion(object):
-    """ Just wrapper around apt_pkg.version_compare() """
-
-    def __init__(self, version):
-        apt_pkg.init_system()
-        self.version = version
-
-    def __eq__(self, x):
-        return apt_pkg.version_compare(self.version, x.version) == 0
-
-    def __ne__(self, x):
-        return not self == x
-
-    def __lt__(self, x):
-        return apt_pkg.version_compare(self.version, x.version) < 0
-
-    def __gt__(self, x):
-        return apt_pkg.version_compare(self.version, x.version) > 0
-
-    def __ge__(self, x):
-        return self == x or self > x
-
-    def __le__(self, x):
-        return self == x or self < x
 
 
 class Cacus(object):
@@ -188,7 +161,7 @@ class Cacus(object):
         # misc
         self.config['repo_daemon']['repo_base'] = self.config['repo_daemon']['repo_base'].rstrip('/')
         self.config['repo_daemon']['storage_subdir'] = self.config['repo_daemon']['storage_subdir'].rstrip('/').lstrip('/')
-        self.config['repo_daemon']['privileged_nets'] = [ip_network(unicode(x)) for x in self.config['repo_daemon']['privileged_nets']]
+        self.config['repo_daemon']['privileged_nets'] = [ip_network(x) for x in self.config['repo_daemon']['privileged_nets']]
 
     @staticmethod
     def load_config(config_file):
@@ -313,7 +286,7 @@ class Cacus(object):
         # XXX: This is pretty fat function, but I have no idea how to optimize it - my tests shows that
         # it's almost as fast as "openssl [md5,sha1,sha256,sha256]", despite it's pretty straightforward approach
         if filename:
-            file = open(filename)
+            file = open(filename, "rb")
 
         md5 = hashlib.md5()
         sha1 = hashlib.sha1()
@@ -350,7 +323,7 @@ class Cacus(object):
                 _md5 = hashlib.md5()
                 _sha1 = hashlib.sha1()
                 _sha256 = hashlib.sha256()
-                with open(filename, 'w') as f:
+                with open(filename, 'wb') as f:
                     for chunk in r.iter_content(4*1024*1024):
                         total_bytes += len(chunk)
                         f.write(chunk)
@@ -590,7 +563,7 @@ def with_retries(attempts, delays, fun, *args, **kwargs):
     # repeat last delay infinitely
     delays = chain(delays[:-1], repeat(delays[-1]))
     exc = Exception("Don't blink!")
-    for attempt in xrange(attempts):
+    for attempt in range(attempts):
         try:
             result = fun(*args, **kwargs)
         except (Timeout, TemporaryError, DistroLockTimeout) as e:

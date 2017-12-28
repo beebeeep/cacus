@@ -28,7 +28,7 @@ def package(request):
             os.chdir(pkg_dir)
 
             with open('data', 'w') as f:
-                for x in xrange(deadweight):
+                for x in range(deadweight):
                     f.write(chr(random.randint(0, 255)))
 
             with open('debian/changelog', 'w') as f:

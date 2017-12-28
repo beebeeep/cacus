@@ -1,3 +1,7 @@
+## [Version 0.8.1](https://github.com/beebeeep/cacus/tree/v0.8.1) (2017-11-17)
+  * Migrated to python3, removed some libs poorly supported
+  * Fixed distro settings update via api/v1/distro/create
+
 ## [Version 0.7.25](https://github.com/beebeeep/cacus/tree/v0.7.25) (2017-12-13)
   * Do not reindex repo while applying retention policy
 

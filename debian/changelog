@@ -1,3 +1,10 @@
+cacus (0.8.1) unstable; urgency=medium
+
+  * Migrated to python3, removed some libs poorly supported
+  * Fixed distro settings update via api/v1/distro/create
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Wed, 15 Nov 2017 21:50:58 +0000
+
 cacus (0.7.25) unstable; urgency=medium
 
   * Do not reindex repo while applying retention policy
