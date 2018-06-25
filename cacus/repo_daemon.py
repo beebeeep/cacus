@@ -163,7 +163,7 @@ class StorageHandler(CacusRequestHandler):
     @gen.coroutine
     def stream_from_storage(self, key=None, headers=[]):
         self.dead = False
-        stream = common.ProxyStream(self, headers=headers)
+        stream = common.ProxyStream(self, headers=headers, ioloop=IOLoop.current())
         self.set_header('Content-Type', 'application/octet-stream')
         # TODO last-modified, content-length and other metadata _should_ be provided!
         try:

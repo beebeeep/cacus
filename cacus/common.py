@@ -373,9 +373,11 @@ class ProxyStream(object):
         client of Tornado server
     """
 
-    def __init__(self, handler, headers=[]):
+    def __init__(self, handler, ioloop, headers=[]):
         self._handler = handler
         self._headers = headers
+        # caller's ioloop
+        self._ioloop = ioloop
         self._headers_set = False
 
     def sync_write(self, data, event):
@@ -391,9 +393,9 @@ class ProxyStream(object):
                 self._headers_set = True
 
             event = Event()
-            # write() and sync() should be called from thread where ioloop is running
-            # so schedule write & flush for next iteration
-            IOLoop.current().add_callback(self.sync_write, data, event)
+            # write() and sync() should be called from thread with ioloop having client connection
+            # so schedule write & flush for next iteration in that ioloop
+            self._ioloop.add_callback(self.sync_write, data, event)
             event.wait()
             return 0    # len(data)
         else:
