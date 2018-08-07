@@ -21,9 +21,8 @@ class FileStorage(IStoragePlugin):
     @staticmethod
     def _hashdir(path, sha256):
         """ Append two levels of directory hierarchy based on provided hash """
-        digest = sha256.hexdigest()
         components = path.split(os.path.sep)
-        return os.path.join(os.path.join(*components[0:-1]), digest[0], digest[1:3], components[-1])
+        return os.path.join(os.path.join(*components[0:-1]), sha256[0], sha256[1:3], components[-1])
 
     def delete(self, key):
         try:
@@ -71,7 +70,6 @@ class FileStorage(IStoragePlugin):
                 raise common.FatalError(e)
 
         return storage_key
-
 
     def get(self, key, stream):
         try:

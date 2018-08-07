@@ -37,7 +37,7 @@ class RepoManager(common.Cacus):
             # remove parameters not explicitly specified
             params = dict((k, v) for k, v in params.items() if v is not None)
 
-        if 'quota' in params and params['quota'] is not None and params['quota'] < 0 :
+        if 'quota' in params and params['quota'] is not None and params['quota'] < 0:
             # negative quota means no quota
             params['quota'] = None
 
@@ -246,24 +246,24 @@ class RepoManager(common.Cacus):
 
         release += u"MD5Sum:\n"
         release += "\n".join(
-                u" {} {} {}/binary-{}/Packages".format(hexlify(file['md5']), file['size'], file['component'], file['architecture'])
+                u" {} {} {}/binary-{}/Packages".format(hexlify(file['md5']).decode(), file['size'], file['component'], file['architecture'])
                 for file in packages) + u"\n"
         release += "\n".join(
-                u" {} {} {}/source/Sources".format(hexlify(file['md5']), file['size'], file['component'])
+                u" {} {} {}/source/Sources".format(hexlify(file['md5']).decode(), file['size'], file['component'])
                 for file in sources)
         release += u"\nSHA1:\n"
         release += "\n".join(
-                u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha1']), file['size'], file['component'], file['architecture'])
+                u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha1']).decode(), file['size'], file['component'], file['architecture'])
                 for file in packages) + u"\n"
         release += "\n".join(
-                u" {} {} {}/source/Sources".format(hexlify(file['sha1']), file['size'], file['component'])
+                u" {} {} {}/source/Sources".format(hexlify(file['sha1']).decode(), file['size'], file['component'])
                 for file in sources)
         release += u"\nSHA256:\n"
         release += "\n".join(
-                u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha256']), file['size'], file['component'], file['architecture'])
+                u" {} {} {}/binary-{}/Packages".format(hexlify(file['sha256']).decode(), file['size'], file['component'], file['architecture'])
                 for file in packages) + u"\n"
         release += "\n".join(
-                u" {} {} {}/source/Sources".format(hexlify(file['sha256']), file['size'], file['component'])
+                u" {} {} {}/source/Sources".format(hexlify(file['sha256']).decode(), file['size'], file['component'])
                 for file in sources)
         release += u"\n"
 
@@ -285,7 +285,6 @@ class RepoManager(common.Cacus):
 
         distro_settings = self.db.cacus.distros.find_one({'distro': distro})
         distro_component = self.db.cacus.components.find_one({'distro': distro, 'component': comp})
-        incoming_bytes = 0
 
         if not distro_settings:
             raise common.NotFound("Distribution '{}' was not found".format(distro))
@@ -295,8 +294,8 @@ class RepoManager(common.Cacus):
         if distro_settings['strict'] and not changes:
             raise common.FatalError("Strict mode enabled for '{}', will not upload package without signed .changes file".format(distro))
 
+        incoming_bytes = sum(os.stat(file).st_size for file in files)
         if distro_settings.get('quota', None) is not None:
-            incoming_bytes = sum(os.stat(file).st_size for file in files)
             if incoming_bytes > distro_settings['quota'] - distro_settings['quota_used']:
                 raise common.FatalError("Quota exceeded for distro '{distro}': you are using {quota_used} bytes of {quota}".format(**distro_settings))
 
@@ -313,7 +312,7 @@ class RepoManager(common.Cacus):
                 ext = 'deb' if file.endswith('.deb') else 'udeb'
                 base_key = "{}/pool/{}_{}_{}.{}".format(distro, deb['Package'], deb['Version'], deb['Architecture'], ext)
                 self.log.info("Uploading %s as %s to distro '%s' component '%s'", os.path.basename(file), base_key, distro, comp)
-                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'])
+                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'].hexdigest())
 
                 # All debian packages are going to "packages" db, prepare documents to insert
                 debs.append({
@@ -332,7 +331,7 @@ class RepoManager(common.Cacus):
                 filename = os.path.basename(file)
                 base_key = "{0}/pool/{1}".format(distro, filename)
                 self.log.info("Uploading %s to distro '%s' component '%s'", base_key, distro, comp)
-                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'])
+                storage_key = self.storage.put(base_key, filename=file, sha256=hashes['sha256'].hexdigest())
                 source['storage_key'] = storage_key
                 src_pkg['files'].append(source)
                 if dsc:
@@ -417,6 +416,7 @@ class RepoManager(common.Cacus):
             if old_deb:
                 # same for debs - if there is older version, recalculate used space
                 diff += old_deb['meta']['size']
+                self.log.debug("Size diff for %s_%s_%s is %s bytes", deb['Package'], deb['Version'], deb['Architecture'], diff)
                 if old_deb['storage_key'] != deb['storage_key']:
                     # file was replaced by new version but old still exist in storage, delete it
                     try:
@@ -425,6 +425,7 @@ class RepoManager(common.Cacus):
                     except Exception as e:
                         self.log.error("Cannot delete old file %s: %s", old_deb['storage_key'], e.message)
 
+        self.log.debug("Returning diff %s", diff)
         return diff
 
     def _update_packages(self, distro, comp, arch, now):
@@ -442,7 +443,7 @@ class RepoManager(common.Cacus):
 
         # Packages may be used by distro snapshots, so we keep all versions under unique filename
         base_key = "{}/{}/{}/Packages_{}".format(distro, comp, arch, sha256.hexdigest())
-        storage_key = self.storage.put(base_key, file=packages, sha256=sha256)
+        storage_key = self.storage.put(base_key, file=packages, sha256=sha256.hexdigest())
 
         old_repo = self.db.cacus.repos.find_one_and_update(
                 {'distro': distro, 'component': comp, 'architecture': arch},
@@ -478,7 +479,7 @@ class RepoManager(common.Cacus):
         sha256.update(sources.getvalue())
 
         base_key = "{}/{}/source/Sources_{}".format(distro, comp, sha256.hexdigest())
-        storage_key = self.storage.put(base_key, file=sources, sha256=sha256)
+        storage_key = self.storage.put(base_key, file=sources, sha256=sha256.hexdigest())
 
         old_component = self.db.cacus.components.find_one_and_update(
                 {'distro': distro, 'component': comp},
@@ -565,7 +566,7 @@ class RepoManager(common.Cacus):
 
             def gen_para(algo, files):
                 for f in files:
-                    data.write(" {0} {1} {2}\n".format(hexlify(f[algo]), f['size'], f['storage_key']).encode())
+                    data.write(" {0} {1} {2}\n".format(hexlify(f[algo]).decode(), f['size'], f['storage_key']).encode())
 
             data.write(b"Files: \n")
             gen_para('md5', files)

@@ -15,6 +15,9 @@ import os
 import re
 import binascii
 import urllib
+import gzip
+import queue
+import threading
 
 from debian import deb822
 
@@ -37,7 +40,17 @@ class DistroImporter(repo_manage.RepoManager):
                 url = url + '/' + arg
         return url
 
-    def import_distro(self, base_url, distro, components=None, arches=None):
+    def __init__(threads, *args, **kwargs):
+        self._download_queue = queue.Queue()
+        self._downloaders = []
+        for i in range(threads):
+            t = threading.Thread(target=self._downloader_task)
+            t.start()
+            self._downloaders.append(t)
+
+        super(DistroImporter, self).__init__(*args, **kwargs)
+
+    def import_distro(self, base_url, distro, components=None, arches=None, download_packages=False):
         if not components:
             components = set()
         if not arches:
@@ -53,7 +66,7 @@ class DistroImporter(repo_manage.RepoManager):
                 release = deb822.Release(f)
 
             # since we don't know list of components in distro, lock distro on some fake component name
-            with self.lock(self.db, distro, ['__cacusimport']):
+            with self.lock(distro, ['__cacusimport']):
                 # remove all packages imported - we will recreate distro collection from scratch
                 # note that this does not affect APT API of distro - indices are still in place i
                 # and will be updated once we finish import
@@ -67,7 +80,7 @@ class DistroImporter(repo_manage.RepoManager):
                     if m:
                         components.add(m.group('comp'))
                         self.log.debug("Found %s/%s/%s", distro, m.group('comp'), m.group('arch'))
-                        p, e = self.import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'])
+                        p, e = self.import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'], download_packages)
                         packages += p
                         errors.extend(e)
                 meta = {'distro': distro, 'imported': {'from': base_url},
@@ -84,16 +97,17 @@ class DistroImporter(repo_manage.RepoManager):
                 pass
         self.log.info("Distribution %s: imported %s packages, %s import errors", distro, packages, len(errors))
 
-    def import_repo(self, base_url, distro, ext, comp, arch, sha256):
+    def import_repo(self, base_url, distro, ext, comp, arch, sha256, download_packages=False):
         packages_url = self._urljoin(base_url, 'dists', distro, comp, arch, 'Packages.' + ext)
         packages_filename = self.download_file(packages_url, sha256=binascii.unhexlify(sha256))
         pkgs = 0
         errs = []
         try:
-            with open(packages_filename) as f:
+            # TODO: LZMA support
+            with gzip.open(packages_filename) as f:
                 for package in deb822.Packages.iter_paragraphs(f):
                     try:
-                        self.import_package(base_url, distro, comp, package)
+                        self.import_package(base_url, distro, comp, package, download_packages)
                         pkgs += 1
                     except Exception as e:
                         self.log.error("Error importing package %s_%s_%s: %s",
@@ -106,21 +120,37 @@ class DistroImporter(repo_manage.RepoManager):
                 pass
         return pkgs, errs
 
-    def import_package(self, base_url, distro, comp, meta):
+    def import_package(self, base_url, distro, comp, meta, download=False):
         package = meta['Package']
         version = meta['Version']
         arch = meta['Architecture']
         self.log.debug("Importing package %s_%s_%s to %s/%s", package, version, meta['Architecture'], distro, comp)
-        # TODO: full import option. For now we import only metadata and just proxying requests for actual files to original repo
+        if download:
+            filename = meta.pop('Filename')
+            pkg_filename = self.download_file("{}/{}".format(base_url, filename), sha256=binascii.unhexlify(meta['sha256']))
+            base_key = "{0}/pool/{1}".format(distro, filename)
+            try:
+                storage_key = self.storage.put(base_key, filename=pkg_filename, sha256=meta['sha256'])
+            finally:
+                try:
+                    os.unlink(pkg_filename)
+                except:
+                    pass
+        else:
+            storage_key = self._urljoin("extstorage/", urllib.parse.quote_plus(base_url), urllib.parse.quote_plus(meta.pop('Filename')))
         doc = {
             'Package': package,
             'Version': version,
             'Architecture': arch,
             # remove Filename from original meta - will be replaced by our own:
-            'storage_key': self._urljoin("extstorage/", urllib.quote_plus(base_url), urllib.quote_plus(meta.pop('Filename'))),
+            'storage_key': storage_key,
             'meta': meta
             # TODO import dsc and sources
         }
         self.db.packages[distro].find_one_and_update({'Package': package, 'Version': version, 'Architecture': arch},
                                                      {'$set': doc, '$addToSet': {'components': comp}},
                                                      upsert=True)
+
+    def _downloader_task(self):
+        while True:
+            url = self._download_queue.get()
