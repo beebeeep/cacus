@@ -63,6 +63,7 @@ def main():
     op_type.add_argument('--import-distro', type=str, nargs=2, metavar=('URL', 'NAME'), help='Import distribution')
 
     parser.add_argument('--download-packages', action='store_true', help='Download imported packages')
+    parser.add_argument('-t', '--threads', type=int, default=10, help='Import download threads')
     parser.add_argument('-e', '--expire', type=int, help='Expiration period for JWT token')
     parser.add_argument('-d', '--distro', type=str, nargs='*', help='Distros that will be manageable by this JWT token. If omitted, token will have root access.')
     """
@@ -87,7 +88,7 @@ def main():
         manager = repo_manage.RepoManager(config_file=args.config)
         manager.update_distro_metadata(args.update_distro)
     elif args.import_distro:
-        importer = distro_import.DistroImporter(config_file=args.config)
+        importer = distro_import.DistroImporter(args.threads, config_file=args.config)
         importer.import_distro(args.import_distro[0], args.import_distro[1], download_packages=args.download_packages)
     elif args.create_indexes:
         manager = repo_manage.RepoManager(config_file=args.config)

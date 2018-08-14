@@ -40,13 +40,14 @@ class DistroImporter(repo_manage.RepoManager):
                 url = url + '/' + arg
         return url
 
-    def __init__(threads, *args, **kwargs):
-        self._download_queue = queue.Queue()
-        self._downloaders = []
+    def __init__(self, threads, *args, **kwargs):
+        self._import_queue = queue.Queue()
+        self._importers = []
+        self._errors_lock = threading.Lock()
         for i in range(threads):
-            t = threading.Thread(target=self._downloader_task)
+            t = threading.Thread(target=self._importer_task)
             t.start()
-            self._downloaders.append(t)
+            self._importers.append(t)
 
         super(DistroImporter, self).__init__(*args, **kwargs)
 
@@ -59,7 +60,7 @@ class DistroImporter(repo_manage.RepoManager):
         release_url = self._urljoin(base_url, 'dists', distro, 'Release')
         release_filename = self.download_file(release_url)
         packages = 0
-        errors = []
+        self._errors = []
 
         try:
             with open(release_filename) as f:
@@ -74,51 +75,58 @@ class DistroImporter(repo_manage.RepoManager):
                 self.create_packages_indexes([distro])
 
                 # TODO add LZMA (.xz) support. Appears that debian.deb822 can handle .gz automagically, but barely supports .xz
-                packages_re = re.compile("(?P<comp>[-_a-zA-Z0-9]+)\/(?P<arch>binary-(?:{}))\/Packages.(?P<ext>[g]z)".format("|".join(arches)))
+                packages_re = re.compile("(?P<comp>[-_a-zA-Z0-9]+)\/(?P<arch>binary-(?:{}))\/Packages(?P<ext>\.[g]z)?".format("|".join(arches)))
                 for entry in release['SHA256']:
                     m = packages_re.match(entry['name'])
                     if m:
                         components.add(m.group('comp'))
                         self.log.debug("Found %s/%s/%s", distro, m.group('comp'), m.group('arch'))
-                        p, e = self.import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'], download_packages)
+                        p = self.import_repo(base_url, distro, m.group('ext'), m.group('comp'), m.group('arch'), entry['sha256'], download_packages)
                         packages += p
-                        errors.extend(e)
                 meta = {'distro': distro, 'imported': {'from': base_url},
                         'description': release.get('Description', 'N/A')}
                 self.db.cacus.distros.find_one_and_update({'distro': distro},
                                                           {'$set': meta},
                                                           upsert=True)
 
-            self.update_distro_metadata(distro, components, arches)
+                self.update_distro_metadata(distro, components, arches)
         finally:
+            for _ in range(len(self._importers)):
+                self._import_queue.put(None)
+
             try:
                 os.unlink(release_filename)
             except:
                 pass
-        self.log.info("Distribution %s: imported %s packages, %s import errors", distro, packages, len(errors))
+        self.log.info("Distribution %s: imported %s packages, %s import errors", distro, packages, len(self._errors))
 
     def import_repo(self, base_url, distro, ext, comp, arch, sha256, download_packages=False):
-        packages_url = self._urljoin(base_url, 'dists', distro, comp, arch, 'Packages.' + ext)
+        packages_url = self._urljoin(base_url, 'dists', distro, comp, arch, 'Packages' + (ext or ''))
         packages_filename = self.download_file(packages_url, sha256=binascii.unhexlify(sha256))
         pkgs = 0
-        errs = []
         try:
             # TODO: LZMA support
-            with gzip.open(packages_filename) as f:
-                for package in deb822.Packages.iter_paragraphs(f):
-                    try:
-                        self.import_package(base_url, distro, comp, package, download_packages)
-                        pkgs += 1
-                    except Exception as e:
-                        self.log.error("Error importing package %s_%s_%s: %s",
-                                       package['Package'], package['Version'], package['Architecture'], e)
-                        errs.append(package)
+            if ext == '.gz':
+                f = gzip.open(packages_filename)
+            else:
+                f = open(packages_filename)
+
+            for package in deb822.Packages.iter_paragraphs(f):
+                self._import_queue.put({
+                    'base_url': base_url,
+                    'distro': distro,
+                    'comp': comp,
+                    'meta': package,
+                    'download': download_packages
+                })
+                pkgs += 1
+            self._import_queue.join()
         finally:
             try:
                 os.unlink(packages_filename)
             except:
                 pass
-        return pkgs, errs
+        return pkgs
 
     def import_package(self, base_url, distro, comp, meta, download=False):
         package = meta['Package']
@@ -127,7 +135,7 @@ class DistroImporter(repo_manage.RepoManager):
         self.log.debug("Importing package %s_%s_%s to %s/%s", package, version, meta['Architecture'], distro, comp)
         if download:
             filename = meta.pop('Filename')
-            pkg_filename = self.download_file("{}/{}".format(base_url, filename), sha256=binascii.unhexlify(meta['sha256']))
+            pkg_filename = self.download_file(self._urljoin(base_url, filename), sha256=binascii.unhexlify(meta['sha256']))
             base_key = "{0}/pool/{1}".format(distro, filename)
             try:
                 storage_key = self.storage.put(base_key, filename=pkg_filename, sha256=meta['sha256'])
@@ -151,6 +159,19 @@ class DistroImporter(repo_manage.RepoManager):
                                                      {'$set': doc, '$addToSet': {'components': comp}},
                                                      upsert=True)
 
-    def _downloader_task(self):
+    def _importer_task(self):
         while True:
-            url = self._download_queue.get()
+            task = self._import_queue.get()
+            if task is None:
+                break
+
+            try:
+                self.import_package(**task)
+                #pkgs += 1
+            except Exception as e:
+                self.log.error("Error importing package %s_%s_%s: %s",
+                                task['meta']['Package'], task['meta']['Version'], task['meta']['Architecture'], e)
+                with self._errors_lock:
+                    self._errors.append(task['meta'])
+
+            self._import_queue.task_done()
