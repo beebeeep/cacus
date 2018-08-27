@@ -1,3 +1,10 @@
+## [Version 0.8.2](https://github.com/beebeeep/cacus/tree/v0.8.2) (2018-08-27)
+  * Added CosmosDB indexes support
+  * Added full distro mirroring 
+
+  Known issues:
+  * Metadata update after distro import crashes while using CosmosDB (#36)
+
 ## [Version 0.8.1](https://github.com/beebeeep/cacus/tree/v0.8.1) (2017-11-17)
   * Migrated to python3, removed some libs poorly supported
   * Fixed distro settings update via api/v1/distro/create

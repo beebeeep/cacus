@@ -606,7 +606,7 @@ class ApiPkgUploadHandler(ApiRequestHandler):
             self.set_status(409)
             self.write({'success': False, 'msg': str(e)})
         except (common.FatalError, Exception) as e:
-            app_log.error("Erorr processing incoming package: %s", str(e))
+            app_log.error("Error processing incoming package: %s", str(e))
             self.set_status(400)
             self.write({'success': False, 'msg': str(e)})
 

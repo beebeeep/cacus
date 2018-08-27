@@ -420,7 +420,7 @@ class RepoManager(common.Cacus):
                 if old_deb['storage_key'] != deb['storage_key']:
                     # file was replaced by new version but old still exist in storage, delete it
                     try:
-                        self.log.debug("Removing old package %s", file['storage_key'])
+                        self.log.debug("Removing old package %s", old_deb['storage_key'])
                         self.storage.delete(old_deb['storage_key'])
                     except Exception as e:
                         self.log.error("Cannot delete old file %s: %s", old_deb['storage_key'], e.message)
