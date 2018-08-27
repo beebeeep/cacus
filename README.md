@@ -46,7 +46,7 @@ Also, there are packages for Debian Jessie:
 curl https://cacus.miga.me.uk/cacus.asc | sudo apt-key add -
 sudo sh -c 'echo "deb http://cacus.miga.me.uk/debian cacus-jessie unstable" > /etc/apt/sources.list.d/cacus.list'
 sudo apt-get update
-sudo apt-get install python-cacus python-cacus-{azure,file}-storage
+sudo apt-get install python3-cacus python3-cacus-{azure,file}-storage
 ```
 
 Configuration & environment

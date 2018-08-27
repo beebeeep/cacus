@@ -182,10 +182,6 @@ class Cacus(object):
             return _ConsulLock(self.db, self.config['lock'], *args, **kwargs)
 
     def create_cacus_indexes(self):
-        if self.db.implementation == 'cosmos':
-            self.log.warning("Using Azure CosmosDB, skipping index creation")
-            return
-
         self.log.info("Creating indexes for cacus.distros...")
         self.db.cacus.distros.create_index('distro', unique=True)
         self.db.cacus.distros.create_index('snapshot')
@@ -209,20 +205,21 @@ class Cacus(object):
             ('distro', pymongo.DESCENDING),
             ('comp', pymongo.DESCENDING)],
             unique=True)
-        self.db.cacus.locks.create_index('modified', expireAfterSeconds=self.config['lock']['ttl'])
+        if self.db.implementation != 'cosmos':
+            self.db.cacus.locks.create_index('modified', expireAfterSeconds=self.config['lock']['ttl'])
 
         self.log.info("Creating indexes for cacus.access_tokens...")
         self.db.cacus.access_tokens.create_index('jti', unique=True)
         # remove expired tokens from DB
-        self.db.cacus.access_tokens.create_index('exp', expireAfterSeconds=300)
+        if self.db.implementation != 'cosmos':
+            self.db.cacus.access_tokens.create_index('exp', expireAfterSeconds=300)
 
     def create_packages_indexes(self, distros=None):
-        if self.db.implementation == 'cosmos':
-            self.log.warning("Using Azure CosmosDB, skipping index creation")
-            return
-
         if not distros:
-            distros = self.db.packages.collection_names()
+            # distros = self.db.packages.collection_names()
+            # pymongo breaks on collection_names() when connected to CosmosDB - apparently its mongodb protocol implentation is broken also here
+            # so use raw command
+            distros = [x['name'] for x in self.db.packages.command({'listCollections': 1})['cursor']['firstBatch']]
 
         for distro in distros:
             self.log.info("Creating indexes for packages.%s...", distro)
@@ -235,7 +232,9 @@ class Cacus(object):
                 [('components', pymongo.DESCENDING),
                  ('Architecture', pymongo.DESCENDING)])
             self.db.packages[distro].create_index('source')
-            self.db.packages[distro].create_index([('meta.Description', pymongo.TEXT)])
+
+            if self.db.implementation != 'cosmos':
+                self.db.packages[distro].create_index([('meta.Description', pymongo.TEXT)])
 
             self.db.sources[distro].create_index(
                 [('Package', pymongo.DESCENDING),
@@ -373,9 +372,11 @@ class ProxyStream(object):
         client of Tornado server
     """
 
-    def __init__(self, handler, headers=[]):
+    def __init__(self, handler, ioloop, headers=[]):
         self._handler = handler
         self._headers = headers
+        # caller's ioloop
+        self._ioloop = ioloop
         self._headers_set = False
 
     def sync_write(self, data, event):
@@ -391,9 +392,9 @@ class ProxyStream(object):
                 self._headers_set = True
 
             event = Event()
-            # write() and sync() should be called from thread where ioloop is running
-            # so schedule write & flush for next iteration
-            IOLoop.current().add_callback(self.sync_write, data, event)
+            # write() and sync() should be called from thread with ioloop having client connection
+            # so schedule write & flush for next iteration in that ioloop
+            self._ioloop.add_callback(self.sync_write, data, event)
             event.wait()
             return 0    # len(data)
         else:

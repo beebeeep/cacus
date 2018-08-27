@@ -1,0 +1,3 @@
+[submodule "vendor/python-jose"]
+	path = vendor/python-jose
+	url = git@github.com:beebeeep/python-jose

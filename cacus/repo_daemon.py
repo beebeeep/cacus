@@ -82,7 +82,6 @@ class ApiRequestHandler(CacusRequestHandler):
             self.write({'success': False, 'msg': 'application/json Content-type expected'})
             raise Finish()
         try:
-            app_log.debug("body '%s'",  self.request.body)
             req = json.loads(escape.to_unicode(self.request.body))
         except Exception as e:
             self.set_status(400)
@@ -163,7 +162,7 @@ class StorageHandler(CacusRequestHandler):
     @gen.coroutine
     def stream_from_storage(self, key=None, headers=[]):
         self.dead = False
-        stream = common.ProxyStream(self, headers=headers)
+        stream = common.ProxyStream(self, headers=headers, ioloop=IOLoop.current())
         self.set_header('Content-Type', 'application/octet-stream')
         # TODO last-modified, content-length and other metadata _should_ be provided!
         try:
@@ -552,7 +551,7 @@ class ApiPkgUploadHandler(ApiRequestHandler):
                       self.request.headers.get('Content-Type', 'N/A'), self.request.headers.get('Content-Length', 'N/A'))
         self._filename = os.path.join(self.settings['config']['duploader_daemon']['incoming_root'], str(uuid.uuid1()) + ".deb")
         try:
-            self._file = open(self._filename, 'w')
+            self._file = open(self._filename, 'wb')
         except Exception as e:
             app_log.error("Cannot open temporary file: %s", str(e))
             self.set_status(500)
@@ -607,7 +606,7 @@ class ApiPkgUploadHandler(ApiRequestHandler):
             self.set_status(409)
             self.write({'success': False, 'msg': str(e)})
         except (common.FatalError, Exception) as e:
-            app_log.error("Erorr processing incoming package: %s", str(e))
+            app_log.error("Error processing incoming package: %s", str(e))
             self.set_status(400)
             self.write({'success': False, 'msg': str(e)})
 

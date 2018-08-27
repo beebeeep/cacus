@@ -17,7 +17,7 @@ setup(
                       'requests',
                       'pymongo>=3.0',
                       'motor>=1.0',
-                      'tornado',
+                      'tornado >= 5.0',
                       'pyinotify',
                       'gnupg>=2.2',
                       'yapsy',

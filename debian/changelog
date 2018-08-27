@@ -1,3 +1,10 @@
+cacus (0.8.2) unstable; urgency=medium
+
+  * Added CosmosDB indexes support
+  * Added full distro mirroring 
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 27 Aug 2018 20:56:59 +0000
+
 cacus (0.8.1) unstable; urgency=medium
 
   * Migrated to python3, removed some libs poorly supported
