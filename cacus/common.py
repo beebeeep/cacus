@@ -246,7 +246,7 @@ class Cacus(object):
         claim = {'sub': subject, 'jti': uuid.uuid4().hex, 'nbf': int(time.time())}
         claim['exp'] = claim['nbf'] + 60*60*24*days
         if not distros:
-            claim['aud'] = Cacus.admin_access
+            claim['aud'] = [Cacus.admin_access]
         else:
             claim['aud'] = distros
 

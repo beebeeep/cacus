@@ -57,19 +57,19 @@ class CachedRequestHandler(CacusRequestHandler):
                 latest_dt = dt
 
         if not latest_dt:
-            raise gen.Return((True, None))
+            return (True, None)
 
         if_modified = self.request.headers.get('If-Modified-Since')
         if not if_modified:
-            raise gen.Return((True, latest_dt))
+            return (True, latest_dt)
 
         cached_dt = email.utils.parsedate(if_modified)
         cached_ts = time.mktime(cached_dt)
         latest_ts = time.mktime(latest_dt.timetuple())
         if latest_ts <= cached_ts:
-            raise gen.Return((False, latest_dt))
+            return (False, latest_dt)
         else:
-            raise gen.Return((True, latest_dt))
+            return (True, latest_dt)
 
 
 # TODO JSON schema?
@@ -113,7 +113,7 @@ class ApiRequestHandler(CacusRequestHandler):
         for net in config['repo_daemon']['privileged_nets']:
             if ip in net:
                 # no auth required
-                raise gen.Return({'privileged': True})
+                return {'privileged': True}
 
         try:
             secret = base64.b64decode(config['repo_daemon']['auth_secret'])
@@ -128,8 +128,9 @@ class ApiRequestHandler(CacusRequestHandler):
                 else:
                     claim = jwt.decode(token, secret, algorithms='HS256', options={'verify_aud': False})
             except jwt.JWTClaimsError as e:
-                if 'Invalid audience' in e:
+                if 'Invalid audience' in str(e):
                     claim = jwt.decode(token, secret, audience=common.Cacus.admin_access, algorithms='HS256')
+
             if 'jti' in claim:
                 # check for revoked tokens
                 doc = yield self.settings['db'].cacus.access_tokens.find_one({'jti': claim['jti']})
@@ -138,7 +139,9 @@ class ApiRequestHandler(CacusRequestHandler):
             else:
                 if self.settings['manager'].config['repo_daemon'].get('reject_old_tokens', True):
                     raise Exception("Old token format, please renew")
+
         except Exception as e:
+            app_log.error("Failed authorization from %s: %s", self.request.remote_ip, e)
             self.set_status(401)
             self.write({'success': False, 'msg': str(e)})
             raise Finish()
@@ -146,7 +149,7 @@ class ApiRequestHandler(CacusRequestHandler):
         app_log.user = claim['sub']
         access_log.user = claim['sub']
         self.settings['manager'].log.user = claim['sub']
-        raise gen.Return(claim)
+        return claim
 
     def on_finish(self):
         app_log.user = None
@@ -338,14 +341,14 @@ class ApiDistroShowHandler(ApiRequestHandler):
         # (i.e all distros in case of privileged net or admin token)
         claim = yield self._check_token(distro)
         if distro:
-            if ('privileged' in claim or claim['aud'] == common.Cacus.admin_access or distro in claim['aud']):
+            if ('privileged' in claim or common.Cacus.admin_access in claim['aud'] or distro in claim['aud']):
                 selector = {'distro': distro}
             else:
                 self.set_status(401)
                 self.write({'success': False, 'msg': 'Access denied'})
                 return
         else:
-            if 'privileged' in claim or claim['aud'] == common.Cacus.admin_access:
+            if 'privileged' in claim or common.Cacus.admin_access in claim['aud']:
                 selector = {}
             else:
                 selector = {'distro': {'$in': claim['aud']}}
@@ -356,7 +359,7 @@ class ApiDistroShowHandler(ApiRequestHandler):
             d = cursor.next_object()
             c = self.settings['db'].cacus.components.find({'distro': d['distro']}, {'component': 1}).to_list(None)
             components = [x['component'] for x in (yield c)]
-            pkg_count = yield self.settings['db'].packages[d['distro']].count({})
+            pkg_count = yield self.settings['db'].packages[d['distro']].count_documents({})
             if 'imported' in d:
                 result.append({
                     'distro': d['distro'],

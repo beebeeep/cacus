@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name="cacus",
-    version="0.8.1",
+    version="0.8.3",
     author="Danila Migalin",
     author_email="me@miga.me.uk",
     url="https://github.com/beebeeep/cacus",
@@ -15,8 +15,8 @@ setup(
     python_requires=">=3.4",
     install_requires=['PyYAML',
                       'requests',
-                      'pymongo>=3.0',
-                      'motor>=1.0',
+                      'pymongo>=3.6',
+                      'motor>=2.0',
                       'tornado >= 5.0',
                       'pyinotify',
                       'gnupg>=2.2',

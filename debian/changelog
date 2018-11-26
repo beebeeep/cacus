@@ -1,3 +1,10 @@
+cacus (0.8.3) unstable; urgency=medium
+
+  * Fixed issues with auth token processing
+  * Updated mongo libs
+
+ -- Cacus maintainer entity <cacus@miga.me.uk>  Mon, 26 Nov 2018 20:29:45 +0000
+
 cacus (0.8.2) unstable; urgency=medium
 
   * Added CosmosDB indexes support
