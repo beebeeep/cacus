@@ -1,3 +1,7 @@
+## [Version 0.8.3](https://github.com/beebeeep/cacus/tree/v0.8.2) (2018-11-26)
+  * Fixed issues with auth token processing
+  * Updated mongo libs
+
 ## [Version 0.8.2](https://github.com/beebeeep/cacus/tree/v0.8.2) (2018-08-27)
   * Added CosmosDB indexes support
   * Added full distro mirroring 
